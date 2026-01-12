@@ -2,85 +2,58 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from ..serializers import SignUpSerializer, SignInSerializer
+from .serializers import WorkerSerializer, SignInSerializer
 from ..database import execute_query, execute_insert
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-
 class SignUpView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = SignUpSerializer(data=request.data)
+        serializer = WorkerSerializer(data=request.data)
         
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         data = serializer.validated_data
         
-        # Check if user exists
-        existing_user = execute_query(
-            "SELECT id FROM users WHERE email = %s OR phone_number = %s",
-            (data['email'], data['phone_number']),
+        # Check if worker exists
+        existing_worker = execute_query(
+            "SELECT workerID FROM tbl_worker WHERE email = %s OR phone = %s",
+            (data['email'], data['phone']),
             fetch_one=True
         )
         
-        if existing_user:
+        if existing_worker:
             return Response(
                 {'error': 'Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Hash password
-        password_hash = hash_password(data['password'])
-        
-        # Insert user
-        user = execute_insert(
+        # Insert worker (password handling optional here if you plan to authenticate workers)
+        worker = execute_insert(
             """
-            INSERT INTO users (email, phone_number, password_hash, full_name, user_type)
+            INSERT INTO tbl_worker (workerName, phone, email, vehicleType, vehicleReg)
             VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, email, phone_number, full_name, user_type, is_active, is_verified, created_at
+            RETURNING workerID, workerName, phone, email, vehicleType, vehicleReg
             """,
-            (data['email'], data['phone_number'], password_hash, data['full_name'], data['user_type'])
+            (
+                data['workerName'],
+                data['phone'],
+                data['email'],
+                data.get('vehicleType', None),
+                data.get('vehicleReg', None)
+            )
         )
         
-        if not user:
+        if not worker:
             return Response(
                 {'error': 'Бүртгэл үүсгэхэд алдаа гарлаа'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        # Create profile based on user type
-        if data['user_type'] == 'driver':
-            execute_insert(
-                """
-                INSERT INTO driver_profiles (user_id, license_number, vehicle_type, vehicle_plate)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (user['id'], data.get('license_number', ''), data.get('vehicle_type', ''), data.get('vehicle_plate', ''))
-            )
-        elif data['user_type'] == 'customer':
-            execute_insert(
-                """
-                INSERT INTO customer_profiles (user_id, default_address, latitude, longitude)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (user['id'], data.get('default_address'), data.get('latitude'), data.get('longitude'))
-            )
-        
-        # Create access token
-        access_token = create_access_token(user['id'], user['email'])
-        
         return Response({
             'message': 'Амжилттай бүртгэгдлээ',
-            'user': {
-                'id': str(user['id']),
-                'email': user['email'],
-                'phone_number': user['phone_number'],
-                'full_name': user['full_name'],
-                'user_type': user['user_type'],
-                'is_verified': user['is_verified']
-            },
-            'access_token': access_token
+            'worker': worker
         }, status=status.HTTP_201_CREATED)
 
 
