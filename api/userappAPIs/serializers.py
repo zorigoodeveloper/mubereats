@@ -7,7 +7,8 @@ class UserSearchSerializer(serializers.Serializer):
     username = serializers.CharField()
 
 class ProfileSearchSerializer(serializers.Serializer):
-    user = UserSearchSerializer()
+    id = serializers.IntegerField()
+    username = serializers.CharField()
     location = serializers.CharField()
 
 class CustomerSignUpSerializer(serializers.Serializer):

@@ -94,6 +94,7 @@ class OrderListView(APIView):
         return Response({'orders': orders or []}, status=status.HTTP_200_OK)
 
 class UserSearchAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
