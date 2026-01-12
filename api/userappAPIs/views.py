@@ -278,4 +278,3 @@ class ProfileView(APIView):
             },
             'profile': profile_data or {}
         })
-    

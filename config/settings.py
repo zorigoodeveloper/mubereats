@@ -15,6 +15,8 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
+    'django.contrib.auth',
+    
     'rest_framework',
     'corsheaders',
     'api',

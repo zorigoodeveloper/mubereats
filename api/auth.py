@@ -38,7 +38,6 @@ class AuthUser(dict):
     @property
     def is_authenticated(self):
         return True
-
 class JWTAuthentication(BaseAuthentication):
     """Custom JWT Authentication class"""
     
