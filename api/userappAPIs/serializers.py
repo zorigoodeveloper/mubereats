@@ -48,3 +48,13 @@ class CustomerSignUpSerializer(serializers.Serializer):
 class SignInSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True)
+
+class OrderItemSerializer(serializers.Serializer):
+    menu_item_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+class OrderCreateSerializer(serializers.Serializer):
+    restaurant_id = serializers.IntegerField()
+    delivery_address = serializers.CharField(max_length=500)
+    items = OrderItemSerializer(many=True)
