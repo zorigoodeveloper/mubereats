@@ -34,7 +34,11 @@ def decode_access_token(token):
     except jwt.InvalidTokenError:
         raise AuthenticationFailed('Invalid token')
 
-
+class AuthUser(dict):
+    @property
+    def is_authenticated(self):
+        return True
+    
 class JWTAuthentication(BaseAuthentication):
     """Custom JWT Authentication class"""
     
@@ -62,7 +66,7 @@ class JWTAuthentication(BaseAuthentication):
             if not user:
                 raise AuthenticationFailed('User not found')
                 
-            return (user, token)
+            return (AuthUser(user), token)
             
         except (ValueError, AuthenticationFailed) as e:
             raise AuthenticationFailed(str(e))
