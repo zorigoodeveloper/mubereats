@@ -3,7 +3,7 @@ Django==4.2.7
 djangorestframework==3.14.0
 PyJWT==2.8.0
 psycopg2-binary
-python-dotenv==1.0.0
+python-dotenv
 django-cors-headers==4.3.0
 bcrypt==4.1.1
 gunicorn
