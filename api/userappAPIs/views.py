@@ -4,8 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..database import execute_query, execute_insert, execute_update
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-from ..serializers import  CustCustomerSignUpSerializer, SignInSerializer, ProfileSearchSerializer, CustomerSignUpSerializer
-from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer
+from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer
 
 # Dummy data
 USERS = [
