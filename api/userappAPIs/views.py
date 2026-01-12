@@ -15,6 +15,84 @@ USERS = [
     {"id": 4, "username": "4nottt", "location": "Erdenet"},
 ]
 
+class CreateOrderView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        data = request.data
+
+        # Зөвхөн customer order үүсгэнэ
+        if user['user_type'] != 'customer':
+            return Response(
+                {'error': 'Зөвхөн customer захиалга үүсгэх боломжтой'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        location = data.get('location')
+        status_value = data.get('status', 'pending')
+
+        if not location:
+            return Response(
+                {'error': 'location заавал шаардлагатай'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # orderID-г автоматаар үүсгэх (timestamp ашиглан давхцахгүй бүхэл тоо үүсгэх)
+        order_id = int(datetime.now().timestamp() * 1000000)
+
+        order = execute_insert(
+            """
+            INSERT INTO tbl_order ("orderID", "userID", date, location, status)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING "orderID", "userID", date, location, status
+            """,
+            (
+                order_id,
+                str(user['id']),
+                datetime.now().date(),
+                location,
+                status_value
+            )
+        )
+
+        if not order:
+            return Response(
+                {'error': 'Захиалга үүсгэхэд алдаа гарлаа'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response({
+            'message': 'Захиалга амжилттай үүслээ',
+            'order': {
+                'orderID': order['orderID'],
+                'userID': order['userID'],
+                'date': order['date'],
+                'location': order['location'],
+                'status': order['status']
+            }
+        }, status=status.HTTP_201_CREATED)
+
+class OrderListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        orders = execute_query(
+            """
+            SELECT "orderID", status, date, location
+            FROM tbl_order
+            WHERE "userID" = %s
+            ORDER BY date DESC
+            """,
+            (user['id'],)
+        )
+        
+        return Response({'orders': orders or []}, status=status.HTTP_200_OK)
+
 class UserSearchAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
