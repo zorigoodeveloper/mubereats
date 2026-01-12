@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .serializers import SignUpSerializer, SignInSerializer
+from ..serializers import SignUpSerializer, SignInSerializer
 from ..database import execute_query, execute_insert
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
 
