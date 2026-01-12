@@ -15,7 +15,12 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
+<<<<<<< HEAD
     'django.contrib.auth', 
+=======
+    'django.contrib.auth',
+    
+>>>>>>> e6649f20f2fb4261e0b8e9b99629d566b40325fa
     'rest_framework',
     'corsheaders',
     'api',
@@ -48,10 +53,9 @@ REST_FRAMEWORK = {
     'UNAUTHENTICATED_USER': None,
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8080",
-]
+# CORS_ALLOWED_ORIGINS = []
+CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ORIGIN_ALLOW_ALL = True
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Ulaanbaatar'
