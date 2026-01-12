@@ -1,3 +1,4 @@
+from datetime import datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -183,76 +184,83 @@ class ProfileUpdateView(APIView):
             'profile': profile_data or {}
         })
 
-    def patch(self, request):
+class CreateOrderView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
         user = request.user
         data = request.data
 
-        if not data:
-            return Response({'message': 'Өөрчлөх талбар оруулаагүй байна'}, status=status.HTTP_200_OK)
-
-        updated = False
-
-        # 1. users хүснэгтэд нийтлэг талбарууд
-        user_updates = {}
-        if 'full_name' in data:
-            user_updates['full_name'] = data['full_name']
-            updated = True
-        if 'profile_image_url' in data:
-            user_updates['profile_image_url'] = data['profile_image_url']
-            updated = True
-
-        if user_updates:
-            set_clause = ", ".join([f"{k} = %s" for k in user_updates])
-            values = list(user_updates.values())
-            values.append(str(user['id']))  # UUID-г string болго
-
-            execute_update(
-                f"UPDATE users SET {set_clause} WHERE id = %s",
-                tuple(values)
+        # Зөвхөн customer order үүсгэнэ
+        if user['user_type'] != 'customer':
+            return Response(
+                {'error': 'Зөвхөн customer захиалга үүсгэх боломжтой'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        # 2. Customer profile
-        if user['user_type'] == 'customer':
-            customer_updates = {}
-            if 'default_address' in data:
-                customer_updates['default_address'] = data['default_address']
-            if 'latitude' in data:
-                customer_updates['latitude'] = data['latitude']
-            if 'longitude' in data:
-                customer_updates['longitude'] = data['longitude']
+        location = data.get('location')
+        status_value = data.get('status', 'pending')
 
-            if customer_updates:
-                set_clause = ", ".join([f"{k} = %s" for k in customer_updates])
-                values = list(customer_updates.values())
-                values.append(str(user['id']))
+        if not location:
+            return Response(
+                {'error': 'location заавал шаардлагатай'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-                execute_update(
-                    f"UPDATE customer_profiles SET {set_clause} WHERE user_id = %s",
-                    tuple(values)
-                )
-                updated = True
+        # orderID-г автоматаар үүсгэх (timestamp ашиглан давхцахгүй бүхэл тоо үүсгэх)
+        order_id = int(datetime.now().timestamp() * 1000000)
 
-      
-
-        # Шинэчлэгдсэн мэдээллийг буцааж харуулах
-        updated_user = execute_query(
-            "SELECT * FROM users WHERE id = %s",
-            (str(user['id']),),
-            fetch_one=True
+        order = execute_insert(
+            """
+            INSERT INTO tbl_order ("orderID", "userID", date, location, status)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING "orderID", "userID", date, location, status
+            """,
+            (
+                order_id,
+                str(user['id']),
+                datetime.now().date(),
+                location,
+                status_value
+            )
         )
 
+        if not order:
+            return Response(
+                {'error': 'Захиалга үүсгэхэд алдаа гарлаа'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
         return Response({
-            'message': 'Профайл амжилттай шинэчлэгдлээ' if updated else 'Өөрчлөлт хийгдээгүй',
-            'user': {
-                'id': str(updated_user['id']),
-                'email': updated_user['email'],
-                'phone_number': updated_user['phone_number'],
-                'full_name': updated_user['full_name'],
-                'user_type': updated_user['user_type'],
-                'is_verified': updated_user['is_verified'],
-                'profile_image_url': updated_user.get('profile_image_url')
+            'message': 'Захиалга амжилттай үүслээ',
+            'order': {
+                'orderID': order['orderID'],
+                'userID': order['userID'],
+                'date': order['date'],
+                'location': order['location'],
+                'status': order['status']
             }
-        }, status=status.HTTP_200_OK)
+        }, status=status.HTTP_201_CREATED)
+
+class OrderListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        orders = execute_query(
+            """
+            SELECT "orderID", status, date, location
+            FROM tbl_order
+            WHERE "userID" = %s
+            ORDER BY date DESC
+            """,
+            (user['id'],)
+        )
+        
+        return Response({'orders': orders or []}, status=status.HTTP_200_OK)
 
 class ProfileView(APIView):
     authentication_classes = [JWTAuthentication]
