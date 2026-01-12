@@ -37,3 +37,17 @@ def execute_insert(query, params=None):
                 return dict(row) if row else None
 
             return None
+
+def execute_update(query, params=None):
+    """Execute update and return the affected rows count"""
+    with get_db_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(query, params or ())
+            return cursor.rowcount
+
+def execute_delete(query, params=None):
+    """Execute delete and return the affected rows count"""
+    with get_db_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(query, params or ())
+            return cursor.rowcount
