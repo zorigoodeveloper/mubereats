@@ -4,7 +4,7 @@ class WorkerSerializer(serializers.Serializer):
     workerName = serializers.CharField(max_length=255)
     phone = serializers.IntegerField()
     email = serializers.EmailField()
-    vehicleType = serializers.IntegerField()  # FK ID
+    vehicleType = serializers.CharField()  # FK ID
     vehicleReg = serializers.CharField(max_length=20)
 
 
