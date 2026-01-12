@@ -12,8 +12,7 @@ class CustomerSignUpView(APIView):
 
     def post(self, request):
         # Хэрэглэгчийн талбаруудыг валидаци хийх
-        required_fields = ['email', 'phone_number', 'full_name', 'password']
-        optional_fields = ['default_address', 'latitude', 'longitude']
+        required_fields = ['email', 'phone', 'user_Name', 'password']
 
         data = request.data
 
@@ -23,8 +22,8 @@ class CustomerSignUpView(APIView):
 
         # Имэйл эсвэл утас давхардаж байгаа эсэх
         existing_user = execute_query(
-            "SELECT id FROM users WHERE email = %s OR phone_number = %s",
-            (data['email'], data['phone_number']),
+            "SELECT id FROM users WHERE email = %s OR phone = %s",
+            (data['email'], data['phone']),
             fetch_one=True
         )
         if existing_user:
@@ -39,11 +38,11 @@ class CustomerSignUpView(APIView):
         # Хэрэглэгч үүсгэх
         user = execute_insert(
             """
-            INSERT INTO users (email, phone_number, password_hash, full_name, user_type)
+            INSERT INTO users (email, phone, password_hash, full_name, user_type)
             VALUES (%s, %s, %s, %s, 'customer')
-            RETURNING id, email, phone_number, full_name, user_type, is_active, is_verified, created_at
+            RETURNING id, email, phone, full_name, user_type, is_active, is_verified, created_at
             """,
-            (data['email'], data['phone_number'], password_hash, data['full_name'])
+            (data['email'], data['phone'], password_hash, data['full_name'])
         )
 
         if not user:
