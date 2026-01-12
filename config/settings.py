@@ -47,10 +47,9 @@ REST_FRAMEWORK = {
     'UNAUTHENTICATED_USER': None,
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8080",
-]
+CORS_ALLOWED_ORIGINS = []
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ORIGIN_ALLOW_ALL = True
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Ulaanbaatar'
