@@ -1,5 +1,14 @@
 from rest_framework import serializers
 from ..database import execute_query
+from django.contrib.auth.models import User
+
+class UserSearchSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+
+class ProfileSearchSerializer(serializers.Serializer):
+    user = UserSearchSerializer()
+    location = serializers.CharField()
 
 class CustomerSignUpSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
