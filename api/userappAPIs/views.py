@@ -184,6 +184,7 @@ class ProfileUpdateView(APIView):
             'profile': profile_data or {}
         })
 
+
 class CreateOrderView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
