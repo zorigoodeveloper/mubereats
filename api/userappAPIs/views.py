@@ -5,6 +5,34 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from .serializers import SignUpSerializer, SignInSerializer
 from ..database import execute_query, execute_insert
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
+from .serializers import ProfileSearchSerializer
+
+# Dummy data
+USERS = [
+    {"id": 1, "username": "ebe", "location": "Ulaanbaatar"},
+    {"id": 2, "username": "mori", "location": "Darkhan"},
+    {"id": 3, "username": "adiya", "location": "25"},
+    {"id": 4, "username": "4nottt", "location": "Erdenet"},
+]
+
+class UserSearchAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        name = request.query_params.get("name", "").lower()
+        location = request.query_params.get("location", "").lower()
+
+        results = []
+        for u in USERS:
+            if name and name not in u["username"].lower():
+                continue
+            if location and location not in u["location"].lower():
+                continue
+            results.append(u)
+
+        serializer = ProfileSearchSerializer(results, many=True)
+        return Response(serializer.data)
+
 
 # ====== ХЭРЭГЛЭГЧЭЭР БҮРТГҮҮЛЭХ ======
 class CustomerSignUpView(APIView):
