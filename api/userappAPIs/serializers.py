@@ -1,22 +1,40 @@
 from rest_framework import serializers
+from ..database import execute_query
 
-class SignUpSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    phone_number = serializers.CharField(max_length=20)
-    password = serializers.CharField(write_only=True, min_length=6)
-    full_name = serializers.CharField(max_length=255)
-    user_type = serializers.ChoiceField(choices=['customer', 'driver', 'restaurant'])
+class CustomerSignUpSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    phone_number = serializers.CharField(max_length=20, required=True)
+    password = serializers.CharField(write_only=True, min_length=6, required=True)
+    full_name = serializers.CharField(max_length=255, required=True)
     
-    # Optional fields for driver
-    license_number = serializers.CharField(max_length=50, required=False)
-    vehicle_type = serializers.CharField(max_length=50, required=False)
-    vehicle_plate = serializers.CharField(max_length=20, required=False)
-    
-    # Optional fields for customer
-    default_address = serializers.CharField(required=False, allow_blank=True)
+    # Optional fields
+    default_address = serializers.CharField(max_length=500, required=False, allow_blank=True)
     latitude = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
     longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False, allow_null=True)
 
+    def validate_email(self, value):
+        """Имэйл давхардаж байгаа эсэх шалгах"""
+        existing = execute_query(
+            "SELECT 1 FROM users WHERE email = %s",
+            (value,),
+            fetch_one=True
+        )
+        if existing:
+            raise serializers.ValidationError("Энэ имэйл аль хэдийн бүртгэлтэй байна.")
+        return value
+
+    def validate_phone_number(self, value):
+        """Утасны дугаар давхардаж байгаа эсэх шалгах"""
+        existing = execute_query(
+            "SELECT 1 FROM users WHERE phone_number = %s",
+            (value,),
+            fetch_one=True
+        )
+        if existing:
+            raise serializers.ValidationError("Энэ утасны дугаар аль хэдийн бүртгэлтэй байна.")
+        return value
+
+
 class SignInSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
