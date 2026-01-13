@@ -2,6 +2,21 @@ from rest_framework import serializers
 from ..database import execute_query
 from django.contrib.auth.models import User
 
+class CartItemSerializer(serializers.Serializer):
+    service_id = serializers.IntegerField(required=True)
+    quantity = serializers.IntegerField(default=1, min_value=1)
+    price = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+
+class AddToCartSerializer(serializers.Serializer):
+    items = CartItemSerializer(many=True, required=True)
+
+
+class CartItemUpdateSerializer(serializers.Serializer):
+    quantity = serializers.IntegerField(min_value=1, required=False)
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
 class UserSearchSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     username = serializers.CharField()
