@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .serializers import WorkerSerializer, SignInSerializer, DeliveryActionSerializer
+from .serializers import WorkerSerializer, SignInSerializer, DeliveryActionSerializer, DeliveryStatusSerializer  
 from ..database import execute_query, execute_insert
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
 
@@ -206,7 +206,7 @@ class MyOrdersView(APIView):
         return Response({"orders": rows}, status=status.HTTP_200_OK)
 
 
-class DeliveryStatusView(APIView):
+class DeliveryView(APIView):
     """
     POST /auth/driver/orders/delivery_status
     Body: {"orderID": 123, "status": "accept" | "picked_up" | "delivered"}
@@ -316,3 +316,78 @@ class DeliveryStatusView(APIView):
         )
 
         return Response({"message": "Хүргэлт амжилттай дууслаа"}, status=status.HTTP_200_OK)
+
+class UpdateDeliveryStatusView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        worker = getattr(request, "worker", None) or request.user
+        if not worker:
+            return Response(
+                {"error": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        serializer = DeliveryStatusSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        order_id = serializer.validated_data["orderID"]
+        status_id = serializer.validated_data["statusID"]
+
+        # 1️⃣ Захиалга байгаа эсэх
+        order = execute_query(
+            """
+            SELECT "orderID"
+            FROM "tbl_order"
+            WHERE "orderID" = %s
+            """,
+            (order_id,),
+            fetch_one=True
+        )
+        if not order:
+            return Response(
+                {"error": "Захиалга олдсонгүй"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 2️⃣ StatusID → statusName авах
+        status_row = execute_query(
+            """
+            SELECT "statusName"
+            FROM "tbl_delivery_status"
+            WHERE "statusID" = %s
+            """,
+            (status_id,),
+            fetch_one=True
+        )
+        if not status_row:
+            return Response(
+                {"error": "Буруу statusID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        status_name = status_row["statusName"]
+
+        # 3️⃣ tbl_order.status update
+        execute_insert(
+            """
+            UPDATE "tbl_order"
+            SET "status" = %s
+            WHERE "orderID" = %s
+            """,
+            (status_name, order_id)
+        )
+
+        return Response(
+            {
+                "message": "Захиалгын төлөв амжилттай шинэчлэгдлээ",
+                "orderID": order_id,
+                "statusID": status_id,
+                "status": status_name
+            },
+            status=status.HTTP_200_OK
+        )
+
+

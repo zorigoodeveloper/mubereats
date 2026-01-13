@@ -29,6 +29,7 @@ from .views import (
     # PackageDrink
     PackageDrinkListView, PackageDrinkCreateView, PackageDrinkUpdateView, PackageDrinkDeleteView,
 )
+from .tViews import RestaurantOrderListView
 
 urlpatterns = [
     # Restaurant
@@ -82,4 +83,8 @@ urlpatterns = [
     # status check
     path('update-status/<int:resID>/', RestaurantStatusUpdateView.as_view()),  # PATCH
     path('check-status/<int:resID>/', RestaurantStatusCheckView.as_view()),   # GET
+
+
+    #order check
+    path('orders/', RestaurantOrderListView.as_view()),
 ]
