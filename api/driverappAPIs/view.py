@@ -2,29 +2,33 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .serializers import WorkerSerializer, SignInSerializer
+
+from .serializers import WorkerSerializer, SignInSerializer, DeliveryActionSerializer
 from ..database import execute_query, execute_insert
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
+
+
+# -------------------------
+# AUTH
+# -------------------------
 
 class SignUpView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = WorkerSerializer(data=request.data)
-
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
 
-        # Check existing worker
         existing_worker = execute_query(
             """
             SELECT "workerID"
             FROM "tbl_worker"
             WHERE "email" = %s OR "phone" = %s
             """,
-            (data['email'], data['phone']),
+            (data["email"], data["phone"]),
             fetch_one=True
         )
 
@@ -34,29 +38,28 @@ class SignUpView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        password_hash = hash_password(data['password'])
+        password_hash = hash_password(data["password"])
 
         worker = execute_insert(
             """
             INSERT INTO "tbl_worker"
             ("workerName", "phone", "email", "password_hash", "vehicleType", "vehicleReg")
             VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING "workerID", "workerName", "phone", "email",
-                      "vehicleType", "vehicleReg"
+            RETURNING "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg"
             """,
             (
-                data['workerName'],
-                data['phone'],
-                data['email'],
+                data["workerName"],
+                data["phone"],
+                data["email"],
                 password_hash,
-                data.get('vehicleType'),
-                data.get('vehicleReg')
+                data.get("vehicleType"),
+                data.get("vehicleReg"),
             )
         )
 
         access_token = create_access_token(
-            user_id=str(worker['workerID']),
-            email=worker['email']
+            user_id=str(worker["workerID"]),
+            email=worker["email"]
         )
 
         return Response(
@@ -68,18 +71,19 @@ class SignUpView(APIView):
                     "email": worker["email"],
                     "phone": worker["phone"],
                     "vehicleType": worker["vehicleType"],
-                    "vehicleReg": worker["vehicleReg"]
+                    "vehicleReg": worker["vehicleReg"],
                 },
-                "access_token": access_token
+                "access_token": access_token,
             },
             status=status.HTTP_201_CREATED
         )
+
+
 class SignInView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = SignInSerializer(data=request.data)
-
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -92,11 +96,11 @@ class SignInView(APIView):
             FROM "tbl_worker"
             WHERE "email" = %s
             """,
-            (data['email'],),
+            (data["email"],),
             fetch_one=True
         )
 
-        if not worker or not verify_password(data['password'], worker['password_hash']):
+        if not worker or not verify_password(data["password"], worker["password_hash"]):
             return Response(
                 {"error": "Имэйл эсвэл нууц үг буруу байна"},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -116,9 +120,9 @@ class SignInView(APIView):
                     "email": worker["email"],
                     "phone": worker["phone"],
                     "vehicleType": worker["vehicleType"],
-                    "vehicleReg": worker["vehicleReg"]
+                    "vehicleReg": worker["vehicleReg"],
                 },
-                "access_token": access_token
+                "access_token": access_token,
             },
             status=status.HTTP_200_OK
         )
@@ -129,12 +133,11 @@ class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        worker = request.user 
+        worker = request.user  # must contain {"id": <workerID>, ...}
 
         profile = execute_query(
             """
-            SELECT "workerID", "workerName", "phone",   "email",
-                   "vehicleType", "vehicleReg"
+            SELECT "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg"
             FROM "tbl_worker"
             WHERE "workerID" = %s
             """,
@@ -143,10 +146,7 @@ class ProfileView(APIView):
         )
 
         if not profile:
-            return Response(
-                {"error": "Профайл олдсонгүй"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Профайл олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(
             {
@@ -156,12 +156,17 @@ class ProfileView(APIView):
                     "email": profile["email"],
                     "phone": profile["phone"],
                     "vehicleType": profile["vehicleType"],
-                    "vehicleReg": profile["vehicleReg"]
+                    "vehicleReg": profile["vehicleReg"],
                 }
             },
             status=status.HTTP_200_OK
         )
-    
+
+
+# -------------------------
+# ORDERS (DRIVER)
+# -------------------------
+
 class AvailableOrdersView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -177,44 +182,6 @@ class AvailableOrdersView(APIView):
             """
         )
         return Response({"orders": orders}, status=status.HTTP_200_OK)
-
-
-class AcceptOrderView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, order_id):
-        worker = request.user  # worker["id"] = workerID
-
-        # already taken?
-        existing = execute_query(
-            """
-            SELECT "delID"
-            FROM "tbl_deliver"
-            WHERE "orderID" = %s
-            """,
-            (order_id,),
-            fetch_one=True
-        )
-        if existing:
-            return Response(
-                {"error": "Энэ захиалга аль хэдийн хүргэгчтэй болсон байна"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        delivery = execute_insert(
-            """
-            INSERT INTO "tbl_deliver" ("orderID", "workerID", "status", "startdate")
-            VALUES (%s, %s, %s, NOW()::date)
-            RETURNING "delID", "orderID", "workerID", "status", "startdate"
-            """,
-            (order_id, worker["id"], "Захиалга авлаа")
-        )
-
-        return Response(
-            {"message": "Захиалгыг авлаа", "delivery": delivery},
-            status=status.HTTP_201_CREATED
-        )
 
 
 class MyOrdersView(APIView):
@@ -239,32 +206,76 @@ class MyOrdersView(APIView):
         return Response({"orders": rows}, status=status.HTTP_200_OK)
 
 
-class UpdateDeliveryStatusView(APIView):
+class DeliveryStatusView(APIView):
+    """
+    POST /auth/driver/orders/delivery_status
+    Body: {"orderID": 123, "status": "accept" | "picked_up" | "delivered"}
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def patch(self, request, order_id):
+    def post(self, request):
         worker = request.user
-        new_status = request.data.get("status")
 
-        allowed = ["Захиалга авлаа", "Хүргэлтэд гарлаа", "Очиж байна", "Дууссан"]
-        if new_status not in allowed:
-            return Response({"error": "Буруу төлөв"}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = DeliveryActionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # If delivered -> set enddate
-        if new_status == "Дууссан":
-            updated = execute_insert(
+        order_id = serializer.validated_data["orderID"]
+        action = serializer.validated_data["status"]
+
+        # Ensure order exists
+        order = execute_query(
+            """
+            SELECT "orderID"
+            FROM "tbl_order"
+            WHERE "orderID" = %s
+            """,
+            (order_id,),
+            fetch_one=True
+        )
+        if not order:
+            return Response({"error": "Захиалга олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
+
+        # ACCEPT
+        if action == "accept":
+            existing = execute_query(
                 """
-                UPDATE "tbl_deliver"
-                SET "status" = %s,
-                    "enddate" = NOW()::date
+                SELECT "delID"
+                FROM "tbl_deliver"
                 WHERE "orderID" = %s
-                  AND "workerID" = %s
-                RETURNING "delID"
                 """,
-                (new_status, order_id, worker["id"])
+                (order_id,),
+                fetch_one=True
             )
-        else:
+            if existing:
+                return Response({"error": "Энэ захиалга аль хэдийн хүргэгчтэй"}, status=status.HTTP_400_BAD_REQUEST)
+
+            delivery = execute_insert(
+                """
+                INSERT INTO "tbl_deliver" ("orderID", "workerID", "status", "startdate")
+                VALUES (%s, %s, %s, NOW()::date)
+                RETURNING "delID", "orderID", "workerID", "status", "startdate"
+                """,
+                (order_id, worker["id"], "Захиалга авлаа")
+            )
+
+            execute_insert(
+                """
+                UPDATE "tbl_order"
+                SET "status" = %s
+                WHERE "orderID" = %s
+                """,
+                ("accepted", order_id)
+            )
+
+            return Response(
+                {"message": "Захиалгыг амжилттай авлаа", "delivery": delivery},
+                status=status.HTTP_201_CREATED
+            )
+
+        # PICKED UP
+        if action == "picked_up":
             updated = execute_insert(
                 """
                 UPDATE "tbl_deliver"
@@ -273,13 +284,35 @@ class UpdateDeliveryStatusView(APIView):
                   AND "workerID" = %s
                 RETURNING "delID"
                 """,
-                (new_status, order_id, worker["id"])
+                ("Хүргэлтэд гарлаа", order_id, worker["id"])
             )
+            if not updated:
+                return Response({"error": "Хүргэлт олдсонгүй эсвэл зөвшөөрөлгүй"}, status=status.HTTP_403_FORBIDDEN)
 
+            return Response({"message": "Хүргэлтэд гарлаа"}, status=status.HTTP_200_OK)
+
+        # DELIVERED
+        updated = execute_insert(
+            """
+            UPDATE "tbl_deliver"
+            SET "status" = %s,
+                "enddate" = NOW()::date
+            WHERE "orderID" = %s
+              AND "workerID" = %s
+            RETURNING "delID"
+            """,
+            ("Дууссан", order_id, worker["id"])
+        )
         if not updated:
-            return Response(
-                {"error": "Хүргэлт олдсонгүй эсвэл энэ захиалга танд хамаарахгүй"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            return Response({"error": "Хүргэлт олдсонгүй эсвэл зөвшөөрөлгүй"}, status=status.HTTP_403_FORBIDDEN)
 
-        return Response({"message": "Төлөв шинэчлэгдлээ"}, status=status.HTTP_200_OK)
+        execute_insert(
+            """
+            UPDATE "tbl_order"
+            SET "status" = %s
+            WHERE "orderID" = %s
+            """,
+            ("delivered", order_id)
+        )
+
+        return Response({"message": "Хүргэлт амжилттай дууслаа"}, status=status.HTTP_200_OK)
