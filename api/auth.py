@@ -38,6 +38,13 @@ class AuthUser(dict):
     @property
     def is_authenticated(self):
         return True
+    @property
+    def id(self):
+        return self.get('id')
+    @property
+    def user_type(self):               
+        return self.get('user_type')
+    
 class JWTAuthentication(BaseAuthentication):
     """Custom JWT Authentication class"""
     
