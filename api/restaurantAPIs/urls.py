@@ -12,13 +12,17 @@ from .views import (
     RestaurantCategoryCreateView,
     RestaurantCategoryListView,
     RestaurantCategoryUpdateView,
-    RestaurantCategoryDeleteView
+    RestaurantCategoryDeleteView,
+    RestaurantStatusUpdateView, 
+    RestaurantStatusCheckView,
+    RestaurantSigninView
 )
 
 urlpatterns = [
     # Restaurant
     path('signup/', RestaurantCreateView.as_view()),
-    path('restarantlist/', RestaurantListView.as_view()),
+    path('signin/', RestaurantSigninView.as_view()),  # POST
+    path('list/', RestaurantListView.as_view()),
     path('update/<int:resID>/', RestaurantUpdateView.as_view()),
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
 
@@ -36,4 +40,8 @@ urlpatterns = [
     path('restype/list/', RestaurantCategoryListView.as_view(), name='restype-list'),
     path('restype/update/<int:id>/', RestaurantCategoryUpdateView.as_view(), name='restype-update'),
     path('restype/delete/<int:id>/', RestaurantCategoryDeleteView.as_view(), name='restype-delete'),
+
+    # status check
+    path('update-status/<int:resID>/', RestaurantStatusUpdateView.as_view()),  # PATCH
+    path('check-status/<int:resID>/', RestaurantStatusCheckView.as_view()),   # GET
 ]

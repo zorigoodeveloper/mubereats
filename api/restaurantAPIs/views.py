@@ -1,41 +1,97 @@
 from django.db import connection
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny,IsAuthenticated 
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.authtoken.models import Token
 from rest_framework import status
 from .serializers import (
-    RestaurantSerializer, FoodSerializer, DrinkSerializer,
-    PackageSerializer, PackageFoodSerializer, PackageDrinkSerializer,RestaurantCategorySerializer
+    RestaurantSerializer,
+    FoodSerializer, 
+    DrinkSerializer,
+    PackageSerializer, 
+    PackageFoodSerializer, 
+    PackageDrinkSerializer,
+    RestaurantCategorySerializer,
+    RestaurantSigninSerializer,
+    # RestaurantSerializer
 )
+from datetime import datetime, time
+import pytz
+from rest_framework import serializers
+from django.contrib.auth.hashers import make_password, check_password
 
-from .serializers import BranchSerializer
+
+
+# from .serializers import BranchSerializer
 
 # ===== Restaurant CRUD =====
 class RestaurantCreateView(APIView):
+    permission_classes = [AllowAny]  # public access
+
     def post(self, request):
         serializer = RestaurantSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+            # hash password
+            password = make_password(d.get('password', ''))
+
             with connection.cursor() as c:
-                # Restaurant нэмэх, resID-г автоматаар авах
                 c.execute("""
-                    INSERT INTO tbl_restaurant ("resName", "catID", "phone")
-                    VALUES (%s, %s, %s)
+                    INSERT INTO tbl_restaurant
+                    ("resName", "catID", "phone", "password", "lng", "lat", "openTime", "closeTime", "description", "image", "email", "status")
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING "resID"
-                """, [d['resName'], d['catID'], d.get('phone','')])
+                """, [
+                    d.get('resName',''), d.get('catID',''), d.get('phone',''), password,
+                    d.get('lng',''), d.get('lat',''), d.get('openTime',''), d.get('closeTime',''),
+                    d.get('description',''), d.get('image',''), d.get('email',''), d.get('status','active')
+                ])
                 res_id = c.fetchone()[0]
 
             return Response({"message": "Restaurant added", "resID": res_id}, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
 class RestaurantListView(APIView):
+    """
+    Бүх ресторануудыг жагсаана.
+    openNow flag ашиглан одоогийн цагт нээлттэй эсэхийг харуулна.
+    status='inactive' бол автоматаар хаалттай гэж үзнэ.
+    """
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "resID","resName","catID","phone" FROM tbl_restaurant')
+            c.execute("""
+                SELECT "resID", "resName", "catID", "phone", "lng", "lat", "openTime", "closeTime",
+                       "description", "image", "email", "status"
+                FROM tbl_restaurant
+            """)
             rows = c.fetchall()
-        data = [{"resID": r[0], "resName": r[1], "catID": r[2], "phone": r[3]} for r in rows]
-        return Response(data, status=status.HTTP_200_OK)
 
+        data = []
+        for r in rows:
+            resID, resName, catID, phone, lng, lat, openTime, closeTime, description, image, email, status_val = r
+
+            # openNow flag
+            open_now = is_restaurant_open(openTime, closeTime) and status_val == 'active'
+
+            data.append({
+                "resID": resID,
+                "resName": resName,
+                "catID": catID,
+                "phone": phone,
+                "lng": lng,
+                "lat": lat,
+                "openTime": openTime,
+                "closeTime": closeTime,
+                "description": description,
+                "image": image,
+                "email": email,
+                "status": status_val,
+                "openNow": open_now
+            })
+
+        return Response(data)
 
 class RestaurantUpdateView(APIView):
     def put(self, request, resID):
@@ -45,18 +101,137 @@ class RestaurantUpdateView(APIView):
             with connection.cursor() as c:
                 c.execute("""
                     UPDATE tbl_restaurant
-                    SET "resName"=%s, "catID"=%s, "phone"=%s
+                    SET "resName"=%s, "catID"=%s, "phone"=%s, "password"=%s, "lng"=%s, "lat"=%s, "openTime"=%s, "closeTime"=%s, "description"=%s, "image"=%s, "email"=%s
                     WHERE "resID"=%s
-                """, [d['resName'], d['catID'], d.get('phone',''), resID])
+                """, [d['resName'], d['catID'], d.get('phone',''), d.get('password',''), d.get('lng',''), d.get('lat',''), d.get('openTime',''), d.get('closeTime',''), d.get('description',''), d.get('image',''), d.get('email',''), resID])
             return Response({"message": "Restaurant updated"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class RestaurantDeleteView(APIView):
     def delete(self, request, resID):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_restaurant WHERE "resID"=%s', [resID])
         return Response({"message": "Restaurant deleted"}, status=status.HTTP_200_OK)
+
+
+# ----------------------------
+# Signin API
+# ----------------------------
+class RestaurantSigninView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+
+        with connection.cursor() as c:
+            c.execute("""
+                SELECT "resID", "resName", "password", "status"
+                FROM tbl_restaurant
+                WHERE "email" = %s
+            """, [email])
+            res = c.fetchone()
+
+        if not res:
+            return Response({"error": "Invalid email or password"}, status=401)
+
+        resID, resName, hashed_password, status_val = res
+
+        from django.contrib.auth.hashers import check_password
+        if not check_password(password, hashed_password):
+            return Response({"error": "Invalid email or password"}, status=401)
+
+        if status_val != 'active':
+            return Response({"error": "Restaurant is inactive"}, status=403)
+
+        # Simple token replacement: resID + email
+        custom_token = f"{resID}-{email}"
+
+        return Response({
+            "message": "Login successful",
+            "resID": resID,
+            "resName": resName,
+            "token": custom_token
+        }, status=200)
+
+
+# ----------------------------
+# Serializer for status update
+# ----------------------------
+class RestaurantStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=['active', 'inactive'])
+
+
+# ----------------------------
+# Function to check if restaurant is open (Ulaanbaatar timezone)
+# ----------------------------
+def is_restaurant_open(open_time: time, close_time: time) -> bool:
+    tz = pytz.timezone('Asia/Ulaanbaatar')
+    now = datetime.now(tz).time()
+
+    if open_time < close_time:
+        # Энгийн өдөр дундын цаг (09:00 - 21:00)
+        return open_time <= now <= close_time
+    else:
+        # Overnight цаг (22:00 - 05:00)
+        return now >= open_time or now <= close_time
+
+
+# ----------------------------
+# Status update API (PATCH)
+# ----------------------------
+class RestaurantStatusUpdateView(APIView):
+    permission_classes = [IsAuthenticated]  # зөвхөн бүртгэлтэй хэрэглэгч
+
+    def patch(self, request, resID):
+        serializer = RestaurantStatusSerializer(data=request.data)
+        if serializer.is_valid():
+            new_status = serializer.validated_data['status']
+
+            with connection.cursor() as c:
+                c.execute("""
+                    UPDATE tbl_restaurant
+                    SET status = %s
+                    WHERE "resID" = %s
+                    RETURNING "resID"
+                """, [new_status, resID])
+                updated = c.fetchone()
+
+            if not updated:
+                return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({"message": f"Restaurant status updated to {new_status}"}, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ----------------------------
+# Check restaurant status + openNow API (GET)
+# ----------------------------
+class RestaurantStatusCheckView(APIView):
+    permission_classes = [AllowAny]  # бүгдэд нээлттэй
+
+    def get(self, request, resID):
+        with connection.cursor() as c:
+            c.execute("""
+                SELECT "resName", "status", "openTime", "closeTime"
+                FROM tbl_restaurant
+                WHERE "resID" = %s
+            """, [resID])
+            res = c.fetchone()
+
+        if not res:
+            return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        res_name, status_val, open_time, close_time = res
+        open_now = is_restaurant_open(open_time, close_time) and status_val == 'active'
+
+        return Response({
+            "resID": resID,
+            "resName": res_name,
+            "status": status_val,
+            "openNow": open_now
+        }, status=status.HTTP_200_OK)
 
 
 # ===== Food CRUD =====
@@ -127,61 +302,61 @@ class PackageAddDrinkView(APIView):
         return Response(s.errors, 400)
 
 
-# ===== Branch CRUD =====
-class BranchCreateView(APIView):
-    def post(self, request):
-        serializer = BranchSerializer(data=request.data)
-        if serializer.is_valid():
-            d = serializer.validated_data
-            with connection.cursor() as c:
-                # Branch нэмэх
-                c.execute("""
-                    INSERT INTO tbl_res_branch ("branchName", "resID", "location", "phone")
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING "branchID"
-                """, [d['branchName'], d['resID'], d.get('location',''), d.get('phone','')])
-                branch_id = c.fetchone()[0]
+# # ===== Branch CRUD =====
+# class BranchCreateView(APIView):
+#     def post(self, request):
+#         serializer = BranchSerializer(data=request.data)
+#         if serializer.is_valid():
+#             d = serializer.validated_data
+#             with connection.cursor() as c:
+#                 # Branch нэмэх
+#                 c.execute("""
+#                     INSERT INTO tbl_res_branch ("branchName", "resID", "location", "phone")
+#                     VALUES (%s, %s, %s, %s)
+#                     RETURNING "branchID"
+#                 """, [d['branchName'], d['resID'], d.get('location',''), d.get('phone','')])
+#                 branch_id = c.fetchone()[0]
 
-            return Response({"message": "Branch added", "branchID": branch_id}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class BranchListView(APIView):
-    def get(self, request):
-        resID = request.query_params.get("resID")
-        with connection.cursor() as c:
-            if resID:
-                c.execute("""
-                    SELECT "branchID","branchName","resID","location","phone"
-                    FROM tbl_res_branch WHERE "resID"=%s
-                """, [resID])
-            else:
-                c.execute('SELECT "branchID","branchName","resID","location","phone" FROM tbl_res_branch')
-            rows = c.fetchall()
-        data = [{"branchID": r[0], "branchName": r[1], "resID": r[2], "location": r[3], "phone": r[4]} for r in rows]
-        return Response(data, status=status.HTTP_200_OK)
+#             return Response({"message": "Branch added", "branchID": branch_id}, status=status.HTTP_201_CREATED)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class BranchUpdateView(APIView):
-    def put(self, request, branchID):
-        serializer = BranchSerializer(data=request.data)
-        if serializer.is_valid():
-            d = serializer.validated_data
-            with connection.cursor() as c:
-                c.execute("""
-                    UPDATE tbl_res_branch
-                    SET "branchName"=%s, "resID"=%s, "location"=%s, "phone"=%s
-                    WHERE "branchID"=%s
-                """, [d['branchName'], d['resID'], d.get('location',''), d.get('phone',''), branchID])
-            return Response({"message": "Branch updated"}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+# class BranchListView(APIView):
+#     def get(self, request):
+#         resID = request.query_params.get("resID")
+#         with connection.cursor() as c:
+#             if resID:
+#                 c.execute("""
+#                     SELECT "branchID","branchName","resID","location","phone"
+#                     FROM tbl_res_branch WHERE "resID"=%s
+#                 """, [resID])
+#             else:
+#                 c.execute('SELECT "branchID","branchName","resID","location","phone" FROM tbl_res_branch')
+#             rows = c.fetchall()
+#         data = [{"branchID": r[0], "branchName": r[1], "resID": r[2], "location": r[3], "phone": r[4]} for r in rows]
+#         return Response(data, status=status.HTTP_200_OK)
 
 
-class BranchDeleteView(APIView):
-    def delete(self, request, branchID):
-        with connection.cursor() as c:
-            c.execute('DELETE FROM tbl_res_branch WHERE "branchID"=%s', [branchID])
-        return Response({"message": "Branch deleted"}, status=status.HTTP_200_OK)
+# class BranchUpdateView(APIView):
+#     def put(self, request, branchID):
+#         serializer = BranchSerializer(data=request.data)
+#         if serializer.is_valid():
+#             d = serializer.validated_data
+#             with connection.cursor() as c:
+#                 c.execute("""
+#                     UPDATE tbl_res_branch
+#                     SET "branchName"=%s, "resID"=%s, "location"=%s, "phone"=%s
+#                     WHERE "branchID"=%s
+#                 """, [d['branchName'], d['resID'], d.get('location',''), d.get('phone',''), branchID])
+#             return Response({"message": "Branch updated"}, status=status.HTTP_200_OK)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# class BranchDeleteView(APIView):
+#     def delete(self, request, branchID):
+#         with connection.cursor() as c:
+#             c.execute('DELETE FROM tbl_res_branch WHERE "branchID"=%s', [branchID])
+#         return Response({"message": "Branch deleted"}, status=status.HTTP_200_OK)
 
 
 # ===== Create Category =====
