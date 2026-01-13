@@ -38,12 +38,17 @@ urlpatterns = [
     path('update/<int:resID>/', RestaurantUpdateView.as_view()),
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
 
- # ------------------- FOOD -------------------
+    # ------------------- FOOD -------------------
     path('food/', FoodListView.as_view()),
     path('food/add/', FoodCreateView.as_view()),
     path('food/update/<int:foodID>/', FoodUpdateView.as_view()),
     path('food/delete/<int:foodID>/', FoodDeleteView.as_view()),
 
+    path('food-category/', FoodCategoryListView.as_view()),
+    path('food-category/add/', FoodCategoryCreateView.as_view()),   
+    path('food-category/update/<int:catID>/', FoodCategoryUpdateView.as_view()),
+    path('food-category/delete/<int:catID>/', FoodCategoryDeleteView.as_view()),
+    
     # ------------------- DRINK -------------------
     path('drink/', DrinkListView.as_view()),
     path('drink/add/', DrinkCreateView.as_view()),

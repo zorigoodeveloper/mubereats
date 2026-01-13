@@ -54,7 +54,7 @@ class FoodCategorySerializer(serializers.Serializer):
 
 # ------------------- FOOD -------------------
 class FoodSerializer(serializers.Serializer):
-    foodID = serializers.IntegerField(required=False)
+    foodID = serializers.IntegerField(read_only=True)
     foodName = serializers.CharField(max_length=150)
     resID = serializers.IntegerField()
     catID = serializers.IntegerField()

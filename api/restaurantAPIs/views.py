@@ -251,7 +251,7 @@ class RestaurantStatusCheckView(APIView):
 class FoodCategoryListView(APIView):
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "catID", "catName" FROM tbl_food_category')
+            c.execute('SELECT "catID", "catName" FROM tbl_foodtype')
             rows = c.fetchall()
         data = [{"catID": r[0], "catName": r[1]} for r in rows]
         return Response(data)
@@ -263,7 +263,7 @@ class FoodCategoryCreateView(APIView):
         if serializer.is_valid():
             d = serializer.validated_data
             with connection.cursor() as c:
-                c.execute('INSERT INTO tbl_food_category ("catName") VALUES (%s) RETURNING "catID"', [d['catName']])
+                c.execute('INSERT INTO tbl_foodtype ("catName") VALUES (%s) RETURNING "catID"', [d['catName']])
                 catID = c.fetchone()[0]
             return Response({"message": "Category added", "catID": catID}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -274,14 +274,14 @@ class FoodCategoryUpdateView(APIView):
         if serializer.is_valid():
             d = serializer.validated_data
             with connection.cursor() as c:
-                c.execute('UPDATE tbl_food_category SET "catName"=%s WHERE "catID"=%s', [d['catName'], catID])
+                c.execute('UPDATE tbl_foodtype SET "catName"=%s WHERE "catID"=%s', [d['catName'], catID])
             return Response({"message": "Category updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodCategoryDeleteView(APIView):
     def delete(self, request, catID):
         with connection.cursor() as c:
-            c.execute('DELETE FROM tbl_food_category WHERE "catID"=%s', [catID])
+            c.execute('DELETE FROM tbl_foodtype WHERE "catID"=%s', [catID])
         return Response({"message": "Category deleted"})
 
 
@@ -332,7 +332,7 @@ class FoodDeleteView(APIView):
 class DrinkListView(APIView):
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "drink_id","drink_name","price","description" FROM tbl_drink')
+            c.execute('SELECT "drink_id","drink_name","price","description" FROM tbl_drinks')
             rows = c.fetchall()
         data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3]} for r in rows]
         return Response(data)
@@ -344,7 +344,7 @@ class DrinkCreateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_drink ("drink_name","price","description")
+                    INSERT INTO tbl_drinks ("drink_name","price","description")
                     VALUES (%s,%s,%s) RETURNING "drink_id"
                 """, [d['drink_name'], d['price'], d.get('description','')])
                 drink_id = c.fetchone()[0]
@@ -358,7 +358,7 @@ class DrinkUpdateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    UPDATE tbl_drink SET "drink_name"=%s,"price"=%s,"description"=%s WHERE "drink_id"=%s
+                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s WHERE "drink_id"=%s
                 """, [d['drink_name'], d['price'], d.get('description',''), drink_id])
             return Response({"message": "Drink updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -366,7 +366,7 @@ class DrinkUpdateView(APIView):
 class DrinkDeleteView(APIView):
     def delete(self, request, drink_id):
         with connection.cursor() as c:
-            c.execute('DELETE FROM tbl_drink WHERE "drink_id"=%s', [drink_id])
+            c.execute('DELETE FROM tbl_drinks WHERE "drink_id"=%s', [drink_id])
         return Response({"message": "Drink deleted"})
 
 
@@ -416,7 +416,7 @@ class PackageDeleteView(APIView):
 class PackageFoodListView(APIView):
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "id","package_id","food_id","quantity" FROM tbl_package_food')
+            c.execute('SELECT "ID","package_id","food_id","quantity" FROM tbl_package_food')
             rows = c.fetchall()
         data = [{"id": r[0], "package_id": r[1], "food_id": r[2], "quantity": r[3]} for r in rows]
         return Response(data)
@@ -458,7 +458,7 @@ class PackageFoodDeleteView(APIView):
 class PackageDrinkListView(APIView):
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "id","package_id","drink_id","quantity" FROM tbl_package_drink')
+            c.execute('SELECT "ID","package_id","drink_id","quantity" FROM tbl_package_drinks')
             rows = c.fetchall()
         data = [{"id": r[0], "package_id": r[1], "drink_id": r[2], "quantity": r[3]} for r in rows]
         return Response(data)
@@ -470,7 +470,7 @@ class PackageDrinkCreateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_package_drink ("package_id","drink_id","quantity")
+                    INSERT INTO tbl_package_drinks ("package_id","drink_id","quantity")
                     VALUES (%s,%s,%s) RETURNING "id"
                 """, [d['package_id'], d['drink_id'], d['quantity']])
                 id = c.fetchone()[0]
@@ -484,7 +484,7 @@ class PackageDrinkUpdateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    UPDATE tbl_package_drink SET "package_id"=%s,"drink_id"=%s,"quantity"=%s WHERE "id"=%s
+                    UPDATE tbl_package_drinks SET "package_id"=%s,"drink_id"=%s,"quantity"=%s WHERE "id"=%s
                 """, [d['package_id'], d['drink_id'], d['quantity'], id])
             return Response({"message": "Package Drink updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -492,7 +492,7 @@ class PackageDrinkUpdateView(APIView):
 class PackageDrinkDeleteView(APIView):
     def delete(self, request, id):
         with connection.cursor() as c:
-            c.execute('DELETE FROM tbl_package_drink WHERE "id"=%s', [id])
+            c.execute('DELETE FROM tbl_package_drinks WHERE "id"=%s', [id])
         return Response({"message": "Package Drink deleted"})
 
 # # ===== Branch CRUD =====
