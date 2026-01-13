@@ -14,7 +14,20 @@ from .serializers import (
     PackageDrinkSerializer,
     RestaurantCategorySerializer,
     RestaurantSigninSerializer,
-    # RestaurantSerializer
+    # RestaurantSerializer,
+    # PackageFoodCreateView,
+    FoodSerializer,
+    DrinkSerializer,
+    PackageSerializer,
+    PackageFoodSerializer,
+    PackageDrinkSerializer,
+    # PackageAddFoodView,
+    # PackageAddDrinkView,  
+    FoodCategorySerializer, 
+    DrinkSerializer,
+    PackageSerializer,
+    PackageFoodSerializer,
+    PackageDrinkSerializer
 )
 from datetime import datetime, time
 import pytz
@@ -23,7 +36,7 @@ from django.contrib.auth.hashers import make_password, check_password
 
 
 
-# from .serializers import BranchSerializer
+
 
 # ===== Restaurant CRUD =====
 class RestaurantCreateView(APIView):
@@ -234,73 +247,253 @@ class RestaurantStatusCheckView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# ===== Food CRUD =====
-class FoodCreateView(APIView):
-    def post(self, request):
-        s = FoodSerializer(data=request.data)
-        if s.is_valid():
-            d = s.validated_data
-            with connection.cursor() as c:
-                c.execute("""
-                    INSERT INTO food
-                    (foodName, resID, catID, price, description, image)
-                    VALUES (%s,%s,%s,%s,%s,%s)
-                """, [d["foodName"], d["resID"], d["catID"], d["price"], d.get("description",""), d.get("image","")])
-            return Response({"message": "Food added"}, status=status.HTTP_201_CREATED)
-        return Response(s.errors, 400)
+# ------------------- FOOD CATEGORY -------------------
+class FoodCategoryListView(APIView):
+    def get(self, request):
+        with connection.cursor() as c:
+            c.execute('SELECT "catID", "catName" FROM tbl_food_category')
+            rows = c.fetchall()
+        data = [{"catID": r[0], "catName": r[1]} for r in rows]
+        return Response(data)
 
+class FoodCategoryCreateView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        serializer = FoodCategorySerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute('INSERT INTO tbl_food_category ("catName") VALUES (%s) RETURNING "catID"', [d['catName']])
+                catID = c.fetchone()[0]
+            return Response({"message": "Category added", "catID": catID}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class FoodCategoryUpdateView(APIView):
+    def put(self, request, catID):
+        serializer = FoodCategorySerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute('UPDATE tbl_food_category SET "catName"=%s WHERE "catID"=%s', [d['catName'], catID])
+            return Response({"message": "Category updated"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class FoodCategoryDeleteView(APIView):
+    def delete(self, request, catID):
+        with connection.cursor() as c:
+            c.execute('DELETE FROM tbl_food_category WHERE "catID"=%s', [catID])
+        return Response({"message": "Category deleted"})
+
+
+# ------------------- FOOD -------------------
 class FoodListView(APIView):
     def get(self, request):
-        resID = request.query_params.get("resID")
         with connection.cursor() as c:
-            c.execute("SELECT foodID, foodName, price, description, image FROM food WHERE resID=%s", [resID])
+            c.execute('SELECT "foodID","foodName","resID","catID","price","description","image" FROM tbl_food')
             rows = c.fetchall()
-        return Response([{"foodID": r[0], "foodName": r[1], "price": r[2], "description": r[3], "image": r[4]} for r in rows])
+        data = [{"foodID": r[0], "foodName": r[1], "resID": r[2], "catID": r[3], "price": r[4], "description": r[5], "image": r[6]} for r in rows]
+        return Response(data)
+
+class FoodCreateView(APIView):
+    def post(self, request):
+        serializer = FoodSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    INSERT INTO tbl_food ("foodName","resID","catID","price","description","image")
+                    VALUES (%s,%s,%s,%s,%s,%s) RETURNING "foodID"
+                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image','')])
+                foodID = c.fetchone()[0]
+            return Response({"message": "Food added", "foodID": foodID}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class FoodUpdateView(APIView):
+    def put(self, request, foodID):
+        serializer = FoodSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    UPDATE tbl_food SET "foodName"=%s,"resID"=%s,"catID"=%s,"price"=%s,"description"=%s,"image"=%s
+                    WHERE "foodID"=%s
+                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image',''), foodID])
+            return Response({"message": "Food updated"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class FoodDeleteView(APIView):
+    def delete(self, request, foodID):
+        with connection.cursor() as c:
+            c.execute('DELETE FROM tbl_food WHERE "foodID"=%s', [foodID])
+        return Response({"message": "Food deleted"})
 
 
-# ===== Package CRUD =====
+# ------------------- DRINK -------------------
+class DrinkListView(APIView):
+    def get(self, request):
+        with connection.cursor() as c:
+            c.execute('SELECT "drink_id","drink_name","price","description" FROM tbl_drink')
+            rows = c.fetchall()
+        data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3]} for r in rows]
+        return Response(data)
+
+class DrinkCreateView(APIView):
+    def post(self, request):
+        serializer = DrinkSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    INSERT INTO tbl_drink ("drink_name","price","description")
+                    VALUES (%s,%s,%s) RETURNING "drink_id"
+                """, [d['drink_name'], d['price'], d.get('description','')])
+                drink_id = c.fetchone()[0]
+            return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DrinkUpdateView(APIView):
+    def put(self, request, drink_id):
+        serializer = DrinkSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    UPDATE tbl_drink SET "drink_name"=%s,"price"=%s,"description"=%s WHERE "drink_id"=%s
+                """, [d['drink_name'], d['price'], d.get('description',''), drink_id])
+            return Response({"message": "Drink updated"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DrinkDeleteView(APIView):
+    def delete(self, request, drink_id):
+        with connection.cursor() as c:
+            c.execute('DELETE FROM tbl_drink WHERE "drink_id"=%s', [drink_id])
+        return Response({"message": "Drink deleted"})
+
+
+# ------------------- PACKAGE -------------------
+class PackageListView(APIView):
+    def get(self, request):
+        with connection.cursor() as c:
+            c.execute('SELECT "package_id","restaurant_id","package_name","price" FROM tbl_package')
+            rows = c.fetchall()
+        data = [{"package_id": r[0], "restaurant_id": r[1], "package_name": r[2], "price": r[3]} for r in rows]
+        return Response(data)
+
 class PackageCreateView(APIView):
     def post(self, request):
-        s = PackageSerializer(data=request.data)
-        if s.is_valid():
-            d = s.validated_data
+        serializer = PackageSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO package
-                    (restaurant_id, package_name, price)
-                    VALUES (%s,%s,%s)
-                """, [d["restaurant_id"], d["package_name"], d["price"]])
-            return Response({"message": "Package created"}, status=status.HTTP_201_CREATED)
-        return Response(s.errors, 400)
+                    INSERT INTO tbl_package ("restaurant_id","package_name","price")
+                    VALUES (%s,%s,%s) RETURNING "package_id"
+                """, [d['restaurant_id'], d['package_name'], d['price']])
+                package_id = c.fetchone()[0]
+            return Response({"message": "Package added", "package_id": package_id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class PackageAddFoodView(APIView):
+class PackageUpdateView(APIView):
+    def put(self, request, package_id):
+        serializer = PackageSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    UPDATE tbl_package SET "restaurant_id"=%s,"package_name"=%s,"price"=%s WHERE "package_id"=%s
+                """, [d['restaurant_id'], d['package_name'], d['price'], package_id])
+            return Response({"message": "Package updated"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class PackageDeleteView(APIView):
+    def delete(self, request, package_id):
+        with connection.cursor() as c:
+            c.execute('DELETE FROM tbl_package WHERE "package_id"=%s', [package_id])
+        return Response({"message": "Package deleted"})
+
+
+# ------------------- PACKAGE FOOD -------------------
+class PackageFoodListView(APIView):
+    def get(self, request):
+        with connection.cursor() as c:
+            c.execute('SELECT "id","package_id","food_id","quantity" FROM tbl_package_food')
+            rows = c.fetchall()
+        data = [{"id": r[0], "package_id": r[1], "food_id": r[2], "quantity": r[3]} for r in rows]
+        return Response(data)
+
+class PackageFoodCreateView(APIView):
     def post(self, request):
-        s = PackageFoodSerializer(data=request.data)
-        if s.is_valid():
-            d = s.validated_data
+        serializer = PackageFoodSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO package_food
-                    (package_id, food_id, quantity)
-                    VALUES (%s,%s,%s)
-                """, [d["package_id"], d["food_id"], d["quantity"]])
-            return Response({"message": "Food added to package"}, status=status.HTTP_201_CREATED)
-        return Response(s.errors, 400)
+                    INSERT INTO tbl_package_food ("package_id","food_id","quantity")
+                    VALUES (%s,%s,%s) RETURNING "id"
+                """, [d['package_id'], d['food_id'], d['quantity']])
+                id = c.fetchone()[0]
+            return Response({"message": "Package Food added", "id": id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class PackageAddDrinkView(APIView):
+class PackageFoodUpdateView(APIView):
+    def put(self, request, id):
+        serializer = PackageFoodSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    UPDATE tbl_package_food SET "package_id"=%s,"food_id"=%s,"quantity"=%s WHERE "id"=%s
+                """, [d['package_id'], d['food_id'], d['quantity'], id])
+            return Response({"message": "Package Food updated"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class PackageFoodDeleteView(APIView):
+    def delete(self, request, id):
+        with connection.cursor() as c:
+            c.execute('DELETE FROM tbl_package_food WHERE "id"=%s', [id])
+        return Response({"message": "Package Food deleted"})
+
+
+# ------------------- PACKAGE DRINK -------------------
+class PackageDrinkListView(APIView):
+    def get(self, request):
+        with connection.cursor() as c:
+            c.execute('SELECT "id","package_id","drink_id","quantity" FROM tbl_package_drink')
+            rows = c.fetchall()
+        data = [{"id": r[0], "package_id": r[1], "drink_id": r[2], "quantity": r[3]} for r in rows]
+        return Response(data)
+
+class PackageDrinkCreateView(APIView):
     def post(self, request):
-        s = PackageDrinkSerializer(data=request.data)
-        if s.is_valid():
-            d = s.validated_data
+        serializer = PackageDrinkSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO package_drink
-                    (package_id, drink_id, quantity)
-                    VALUES (%s,%s,%s)
-                """, [d["package_id"], d["drink_id"], d["quantity"]])
-            return Response({"message": "Drink added to package"}, status=status.HTTP_201_CREATED)
-        return Response(s.errors, 400)
+                    INSERT INTO tbl_package_drink ("package_id","drink_id","quantity")
+                    VALUES (%s,%s,%s) RETURNING "id"
+                """, [d['package_id'], d['drink_id'], d['quantity']])
+                id = c.fetchone()[0]
+            return Response({"message": "Package Drink added", "id": id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class PackageDrinkUpdateView(APIView):
+    def put(self, request, id):
+        serializer = PackageDrinkSerializer(data=request.data)
+        if serializer.is_valid():
+            d = serializer.validated_data
+            with connection.cursor() as c:
+                c.execute("""
+                    UPDATE tbl_package_drink SET "package_id"=%s,"drink_id"=%s,"quantity"=%s WHERE "id"=%s
+                """, [d['package_id'], d['drink_id'], d['quantity'], id])
+            return Response({"message": "Package Drink updated"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class PackageDrinkDeleteView(APIView):
+    def delete(self, request, id):
+        with connection.cursor() as c:
+            c.execute('DELETE FROM tbl_package_drink WHERE "id"=%s', [id])
+        return Response({"message": "Package Drink deleted"})
 
 # # ===== Branch CRUD =====
 # class BranchCreateView(APIView):

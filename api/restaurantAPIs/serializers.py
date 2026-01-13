@@ -47,11 +47,12 @@ class RestaurantSerializer(serializers.Serializer):
 #     phone = serializers.CharField(required=False, allow_blank=True)
 
 
+# ------------------- FOOD CATEGORY -------------------
 class FoodCategorySerializer(serializers.Serializer):
     catID = serializers.IntegerField(required=False)
     catName = serializers.CharField(max_length=100)
 
-
+# ------------------- FOOD -------------------
 class FoodSerializer(serializers.Serializer):
     foodID = serializers.IntegerField(required=False)
     foodName = serializers.CharField(max_length=150)
@@ -61,28 +62,28 @@ class FoodSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True)
     image = serializers.CharField(required=False, allow_blank=True)
 
-
+# ------------------- DRINK -------------------
 class DrinkSerializer(serializers.Serializer):
     drink_id = serializers.IntegerField(required=False)
     drink_name = serializers.CharField(max_length=150)
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
     description = serializers.CharField(required=False, allow_blank=True)
 
-
+# ------------------- PACKAGE -------------------
 class PackageSerializer(serializers.Serializer):
     package_id = serializers.IntegerField(required=False)
     restaurant_id = serializers.IntegerField()
     package_name = serializers.CharField(max_length=150)
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
 
-
+# ------------------- PACKAGE FOOD -------------------
 class PackageFoodSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
     package_id = serializers.IntegerField()
     food_id = serializers.IntegerField()
     quantity = serializers.IntegerField()
 
-
+# ------------------- PACKAGE DRINK -------------------
 class PackageDrinkSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
     package_id = serializers.IntegerField()
