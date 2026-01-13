@@ -129,7 +129,7 @@ class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        worker = request.worker 
+        worker = request.user 
 
         profile = execute_query(
             """
@@ -161,4 +161,3 @@ class ProfileView(APIView):
             },
             status=status.HTTP_200_OK
         )
-
