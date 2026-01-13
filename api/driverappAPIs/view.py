@@ -161,3 +161,125 @@ class ProfileView(APIView):
             },
             status=status.HTTP_200_OK
         )
+    
+class AvailableOrdersView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        orders = execute_query(
+            """
+            SELECT o."orderID", o."userID", o."date", o."location", o."status"
+            FROM "tbl_order" o
+            LEFT JOIN "tbl_deliver" d ON d."orderID" = o."orderID"
+            WHERE d."orderID" IS NULL
+            ORDER BY o."date" DESC
+            """
+        )
+        return Response({"orders": orders}, status=status.HTTP_200_OK)
+
+
+class AcceptOrderView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, order_id):
+        worker = request.user  # worker["id"] = workerID
+
+        # already taken?
+        existing = execute_query(
+            """
+            SELECT "delID"
+            FROM "tbl_deliver"
+            WHERE "orderID" = %s
+            """,
+            (order_id,),
+            fetch_one=True
+        )
+        if existing:
+            return Response(
+                {"error": "Энэ захиалга аль хэдийн хүргэгчтэй болсон байна"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        delivery = execute_insert(
+            """
+            INSERT INTO "tbl_deliver" ("orderID", "workerID", "status", "startdate")
+            VALUES (%s, %s, %s, NOW()::date)
+            RETURNING "delID", "orderID", "workerID", "status", "startdate"
+            """,
+            (order_id, worker["id"], "Захиалга авлаа")
+        )
+
+        return Response(
+            {"message": "Захиалгыг авлаа", "delivery": delivery},
+            status=status.HTTP_201_CREATED
+        )
+
+
+class MyOrdersView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        worker = request.user
+
+        rows = execute_query(
+            """
+            SELECT o."orderID", o."userID", o."date", o."location",
+                   d."delID", d."status", d."startdate", d."enddate"
+            FROM "tbl_deliver" d
+            JOIN "tbl_order" o ON o."orderID" = d."orderID"
+            WHERE d."workerID" = %s
+            ORDER BY d."delID" DESC
+            """,
+            (worker["id"],)
+        )
+
+        return Response({"orders": rows}, status=status.HTTP_200_OK)
+
+
+class UpdateDeliveryStatusView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, order_id):
+        worker = request.user
+        new_status = request.data.get("status")
+
+        allowed = ["Захиалга авлаа", "Хүргэлтэд гарлаа", "Очиж байна", "Дууссан"]
+        if new_status not in allowed:
+            return Response({"error": "Буруу төлөв"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # If delivered -> set enddate
+        if new_status == "Дууссан":
+            updated = execute_insert(
+                """
+                UPDATE "tbl_deliver"
+                SET "status" = %s,
+                    "enddate" = NOW()::date
+                WHERE "orderID" = %s
+                  AND "workerID" = %s
+                RETURNING "delID"
+                """,
+                (new_status, order_id, worker["id"])
+            )
+        else:
+            updated = execute_insert(
+                """
+                UPDATE "tbl_deliver"
+                SET "status" = %s
+                WHERE "orderID" = %s
+                  AND "workerID" = %s
+                RETURNING "delID"
+                """,
+                (new_status, order_id, worker["id"])
+            )
+
+        if not updated:
+            return Response(
+                {"error": "Хүргэлт олдсонгүй эсвэл энэ захиалга танд хамаарахгүй"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        return Response({"message": "Төлөв шинэчлэгдлээ"}, status=status.HTTP_200_OK)
