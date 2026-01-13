@@ -1,5 +1,6 @@
 import jwt
 import bcrypt
+import uuid
 from datetime import datetime, timedelta
 from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
@@ -38,6 +39,13 @@ class AuthUser(dict):
     @property
     def is_authenticated(self):
         return True
+    @property
+    def id(self):
+        return self.get('id')
+    @property
+    def user_type(self):               
+        return self.get('user_type')
+    
 class JWTAuthentication(BaseAuthentication):
     """Custom JWT Authentication class"""
     
@@ -55,12 +63,29 @@ class JWTAuthentication(BaseAuthentication):
             payload = decode_access_token(token)
             user_id = payload.get('user_id')
             
-            # Get user from database
-            user = execute_query(
-                "SELECT * FROM users WHERE id = %s AND is_active = TRUE",
-                (user_id,),
-                fetch_one=True
-            )
+            # Check if user_id is UUID (for users table) or Integer (for tbl_worker)
+            try:
+                uuid.UUID(str(user_id))
+                is_uuid = True
+            except ValueError:
+                is_uuid = False
+
+            if is_uuid:
+                # Get user from database
+                user = execute_query(
+                    "SELECT * FROM users WHERE id = %s AND is_active = TRUE",
+                    (user_id,),
+                    fetch_one=True
+                )
+            else:
+                # Get worker from database
+                user = execute_query(
+                    'SELECT * FROM "tbl_worker" WHERE "workerID" = %s',
+                    (user_id,),
+                    fetch_one=True
+                )
+                if user:
+                    user['id'] = user['workerID']
             
             if not user:
                 raise AuthenticationFailed('User not found')

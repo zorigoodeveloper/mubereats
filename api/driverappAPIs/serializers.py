@@ -1,15 +1,24 @@
 from rest_framework import serializers
 
-class SignUpSerializer(serializers.Serializer):
+
+class WorkerSerializer(serializers.Serializer):
+    workerName = serializers.CharField(max_length=255)
+    phone = serializers.IntegerField()
     email = serializers.EmailField()
-    phone_number = serializers.CharField(max_length=20)
     password = serializers.CharField(write_only=True, min_length=6)
-    full_name = serializers.CharField(max_length=255)
-    user_type = serializers.ChoiceField(choices=['driver'])
-    license_number = serializers.CharField(max_length=50, required=False)
-    vehicle_type = serializers.CharField(max_length=50, required=False)
-    vehicle_plate = serializers.CharField(max_length=20, required=False)
+    vehicleType = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    vehicleReg = serializers.CharField(max_length=20, required=False, allow_null=True, allow_blank=True)
+
 
 class SignInSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+
+
+class DeliveryActionSerializer(serializers.Serializer):
+    orderID = serializers.IntegerField()
+    status = serializers.ChoiceField(choices=["accept", "picked_up", "delivered"])
+
+class DeliveryStatusSerializer(serializers.Serializer):
+    orderID = serializers.IntegerField()
+    statusID = serializers.IntegerField()

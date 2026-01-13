@@ -5,7 +5,7 @@ urlpatterns = [
     path('auth/signup/', SignUpView.as_view(), name='signup'),
     path('auth/signin/', SignInView.as_view(), name='signin'),
     path('profile/', ProfileView.as_view(), name='profile'),
-    path('', include('api.driverappAPIs.urls')),
-    path('', include('api.userappAPIs.urls')),
-
+    path('driverapp/', include('api.driverappAPIs.urls')),
+    path('userapp/', include('api.userappAPIs.urls')),
+    path('restaurant/', include('api.restaurantAPIs.urls')),
 ]
