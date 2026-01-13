@@ -10,26 +10,21 @@ class SignUpView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        data = request.data
+        serializer = WorkerSerializer(data=request.data)
 
-        worker_name = data.get("workerName")
-        phone = data.get("phone")
-        email = data.get("email")
-        password = data.get("password")
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        if not worker_name or not phone or not email or not password:
-            return Response(
-                {"error": "workerName, phone, email, password заавал шаардлагатай"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        data = serializer.validated_data
 
+        # Check existing worker
         existing_worker = execute_query(
             """
             SELECT "workerID"
             FROM "tbl_worker"
             WHERE "email" = %s OR "phone" = %s
             """,
-            (email, phone),
+            (data['email'], data['phone']),
             fetch_one=True
         )
 
@@ -39,24 +34,29 @@ class SignUpView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        password_hash = hash_password(password)
+        password_hash = hash_password(data['password'])
 
         worker = execute_insert(
             """
             INSERT INTO "tbl_worker"
-            ("workerName", "phone", "email","password_hash", "vehicleType", "vehicleReg")
+            ("workerName", "phone", "email", "password_hash", "vehicleType", "vehicleReg")
             VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING "workerID", "workerName", "phone", "email",
                       "vehicleType", "vehicleReg"
             """,
             (
-            data['workerName'],
-            data['phone'], 
-            data['email'], 
-            password_hash,
-            data.get('vehicleType', None), 
-            data.get('vehicleReg', None)
+                data['workerName'],
+                data['phone'],
+                data['email'],
+                password_hash,
+                data.get('vehicleType'),
+                data.get('vehicleReg')
             )
+        )
+
+        access_token = create_access_token(
+            user_id=str(worker['workerID']),
+            email=worker['email']
         )
 
         return Response(
@@ -69,24 +69,21 @@ class SignUpView(APIView):
                     "phone": worker["phone"],
                     "vehicleType": worker["vehicleType"],
                     "vehicleReg": worker["vehicleReg"]
-                }
+                },
+                "access_token": access_token
             },
             status=status.HTTP_201_CREATED
         )
-
 class SignInView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        data = request.data
-        identifier = data.get("email")
-        password = data.get("password")
+        serializer = SignInSerializer(data=request.data)
 
-        if not identifier or not password:
-            return Response(
-                {"error": "email болон password заавал шаардлагатай"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
 
         worker = execute_query(
             """
@@ -95,17 +92,11 @@ class SignInView(APIView):
             FROM "tbl_worker"
             WHERE "email" = %s
             """,
-            (identifier,),
+            (data['email'],),
             fetch_one=True
         )
 
-        if not worker:
-            return Response(
-                {"error": "Имэйл эсвэл нууц үг буруу байна"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        if not verify_password(password, worker["password_hash"]):
+        if not worker or not verify_password(data['password'], worker['password_hash']):
             return Response(
                 {"error": "Имэйл эсвэл нууц үг буруу байна"},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -138,16 +129,16 @@ class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user 
+        worker = request.worker 
 
         profile = execute_query(
             """
-            SELECT "workerID", "workerName", "phone", "email",
+            SELECT "workerID", "workerName", "phone",   "email",
                    "vehicleType", "vehicleReg"
             FROM "tbl_worker"
             WHERE "workerID" = %s
             """,
-            (user["id"],),
+            (worker["id"],),
             fetch_one=True
         )
 
