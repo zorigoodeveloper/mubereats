@@ -206,7 +206,7 @@ class MyOrdersView(APIView):
         return Response({"orders": rows}, status=status.HTTP_200_OK)
 
 
-class DeliveryStatusView(APIView):
+class DeliveryView(APIView):
     """
     POST /auth/driver/orders/delivery_status
     Body: {"orderID": 123, "status": "accept" | "picked_up" | "delivered"}
