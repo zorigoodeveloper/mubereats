@@ -5,8 +5,223 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..database import execute_query, execute_insert, execute_update
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer
+from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer, CartItemSerializer, AddToCartSerializer, CartItemUpdateSerializer
 
+# сагслах үйлдэл
+# Сагс руу үйлчилгээ нэмэх
+class AddToCartView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer сагс ашиглаж болно"}, status=403)
+
+        serializer = AddToCartSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        # Хэрэглэгчийн сагс олох эсвэл шинээр үүсгэх
+        cart = execute_query(
+            "SELECT cart_id FROM tbl_cart WHERE user_id = %s",
+            (user.id,),
+            fetch_one=True
+        )
+
+        if not cart:
+            cart = execute_insert(
+                """
+                INSERT INTO tbl_cart (user_id) 
+                VALUES (%s) 
+                RETURNING cart_id
+                """,
+                (user.id,)
+            )
+            cart_id = cart['cart_id']
+        else:
+            cart_id = cart['cart_id']
+
+        items = serializer.validated_data['items']
+        added_items = []
+
+        for item in items:
+            # Ижил service аль хэдийн байгаа эсэх шалгах
+            existing = execute_query(
+                """
+                SELECT cart_item_id, quantity 
+                FROM tbl_cart_item 
+                WHERE cart_id = %s AND service_id = %s
+                """,
+                (cart_id, item['service_id']),
+                fetch_one=True
+            )
+
+            if existing:
+                # Байвал тоог нэмэх
+                new_quantity = existing['quantity'] + item['quantity']
+                execute_update(
+                    """
+                    UPDATE tbl_cart_item 
+                    SET quantity = %s, updated_at = CURRENT_TIMESTAMP 
+                    WHERE cart_item_id = %s
+                    """,
+                    (new_quantity, existing['cart_item_id'])
+                )
+            else:
+                # Шинээр нэмэх
+                execute_insert(
+                    """
+                    INSERT INTO tbl_cart_item (cart_id, service_id, quantity, price, note)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING cart_item_id
+                    """,
+                    (cart_id, item['service_id'], item['quantity'], item['price'], item.get('note'))
+                )
+
+            added_items.append({
+                "service_id": item['service_id'],
+                "quantity": item['quantity'],
+                "price": str(item['price'])
+            })
+
+        return Response({
+            "message": "Сагсанд амжилттай нэмэгдлээ",
+            "added_items": added_items
+        }, status=201)
+
+
+# Хэрэглэгчийн сагсыг харах
+class CartView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer сагс харах боломжтой"}, status=403)
+
+        cart = execute_query(
+            """
+            SELECT c.cart_id, c.created_at
+            FROM tbl_cart c
+            WHERE c.user_id = %s
+            """,
+            (user.id,),
+            fetch_one=True
+        )
+
+        if not cart:
+            return Response({"cart": None, "items": []}, status=200)
+
+        items = execute_query(
+            """
+            SELECT ci.cart_item_id, ci.service_id, ci.quantity, ci.price, ci.note,
+                   s.name AS service_name, s.description AS service_desc  -- service-ийн нэр, тайлбар нэмж болно
+            FROM tbl_cart_item ci
+            LEFT JOIN tbl_service s ON s.service_id = ci.service_id
+            WHERE ci.cart_id = %s
+            ORDER BY ci.created_at
+            """,
+            (cart['cart_id'],)
+        )
+
+        total_price = sum(float(item['price']) * item['quantity'] for item in items or [])
+
+        return Response({
+            "cart": {
+                "cart_id": cart['cart_id'],
+                "created_at": cart['created_at'],
+                "total_items": len(items or []),
+                "total_price": str(total_price)
+            },
+            "items": items or []
+        }, status=200)
+
+
+# Сагсны нэг item-ийг засах (quantity эсвэл note)
+class CartItemUpdateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, cart_item_id):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer засах боломжтой"}, status=403)
+
+        serializer = CartItemUpdateSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        # Item байгаа эсэх, минийх мөн эсэх шалгах
+        item = execute_query(
+            """
+            SELECT ci.cart_item_id, c.user_id
+            FROM tbl_cart_item ci
+            JOIN tbl_cart c ON c.cart_id = ci.cart_id
+            WHERE ci.cart_item_id = %s
+            """,
+            (cart_item_id,),
+            fetch_one=True
+        )
+
+        if not item or item['user_id'] != user.id:
+            return Response({"error": "Сагсны энэ item олдсонгүй эсвэл таных биш"}, status=404)
+
+        updates = {}
+        if 'quantity' in serializer.validated_data:
+            updates['quantity'] = serializer.validated_data['quantity']
+        if 'note' in serializer.validated_data:
+            updates['note'] = serializer.validated_data['note']
+
+        if updates:
+            set_clause = ", ".join([f"{k} = %s" for k in updates])
+            values = list(updates.values())
+            values.append(cart_item_id)
+
+            execute_update(
+                f"UPDATE tbl_cart_item SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE cart_item_id = %s",
+                tuple(values)
+            )
+
+        return Response({"message": "Сагсны item амжилттай шинэчлэгдлээ"}, status=200)
+
+
+# Сагснаас item устгах
+class CartItemDeleteView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, cart_item_id):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer устгах боломжтой"}, status=403)
+
+        # Item байгаа эсэх, минийх мөн эсэх шалгах
+        item = execute_query(
+            """
+            SELECT ci.cart_item_id, c.user_id
+            FROM tbl_cart_item ci
+            JOIN tbl_cart c ON c.cart_id = ci.cart_id
+            WHERE ci.cart_item_id = %s
+            """,
+            (cart_item_id,),
+            fetch_one=True
+        )
+
+        if not item or item['user_id'] != user.id:
+            return Response({"error": "Сагсны энэ item олдсонгүй эсвэл таных биш"}, status=404)
+
+        execute_update(
+            "DELETE FROM tbl_cart_item WHERE cart_item_id = %s",
+            (cart_item_id,)
+        )
+
+        return Response({"message": "Сагснаас устгагдлаа"}, status=204)
 # Dummy data
 USERS = [
     {"id": 1, "username": "ebe", "location": "Ulaanbaatar"},

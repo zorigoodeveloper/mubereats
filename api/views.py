@@ -6,6 +6,8 @@ from .serializers import SignUpSerializer, SignInSerializer
 from .database import execute_query, execute_insert
 from .auth import hash_password, verify_password, create_access_token, JWTAuthentication
 
+
+
 class SignUpView(APIView):
     permission_classes = [AllowAny]
 
