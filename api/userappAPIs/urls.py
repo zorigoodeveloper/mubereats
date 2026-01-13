@@ -1,13 +1,21 @@
 from django.urls import path
-from .views import CreateOrderView, CustomerSignUpView, SignInView, ProfileView, UserSearchAPIView, ProfileUpdateView, OrderListView
+from .views import CreateOrderView, CustomerSignUpView, SignInView, ProfileView, UserSearchAPIView, ProfileUpdateView, OrderListView, AddToCartView, CartView, CartItemUpdateView, CartItemDeleteView
 
 urlpatterns = [
     path('auth/signup/customer/', CustomerSignUpView.as_view(), name='signup'),
     path('auth/signin/customer/', SignInView.as_view(), name='signin'),
+
     path("user/search/", UserSearchAPIView.as_view(), name="user-search"),
+
     path('auth/profile/customer/', ProfileView.as_view(), name='profile'),
     path('auth/profile/update/customer/', ProfileUpdateView.as_view(), name='profile'),
+    
     path('orders/create/', CreateOrderView.as_view()),
     path('order/list/', OrderListView.as_view(), name='order-list'),
+
+    path('cart/add/', AddToCartView.as_view(), name='add-to-cart'),
+    path('cart/', CartView.as_view(), name='cart-detail'),
+    path('cart/item/<int:cart_item_id>/', CartItemUpdateView.as_view(), name='cart-item-update'),
+    path('cart/item/<int:cart_item_id>/delete/', CartItemDeleteView.as_view(), name='cart-item-delete'),
     
 ]
