@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import CreateOrderView, CustomerSignUpView, SignInView, ProfileView, UserSearchAPIView, ProfileUpdateView, OrderListView, AddToCartView, CartView, CartItemUpdateView, CartItemDeleteView
-
+from .eViews import RestaurantSearchAPIView
 urlpatterns = [
     path('auth/signup/customer/', CustomerSignUpView.as_view(), name='signup'),
     path('auth/signin/customer/', SignInView.as_view(), name='signin'),
@@ -17,5 +17,7 @@ urlpatterns = [
     path('cart/', CartView.as_view(), name='cart-detail'),
     path('cart/item/<int:cart_item_id>/', CartItemUpdateView.as_view(), name='cart-item-update'),
     path('cart/item/<int:cart_item_id>/delete/', CartItemDeleteView.as_view(), name='cart-item-delete'),
-    
+
+    path("restaurants/search/", RestaurantSearchAPIView.as_view()),
+
 ]
