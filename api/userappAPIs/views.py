@@ -230,7 +230,7 @@ class ProfileUpdateView(APIView):
         user = request.user
         
         profile_data = None
-        if user['user_type'] == 'driver':
+        if user.user_type == 'driver':        
             profile_data = execute_query(
                 """
                 SELECT dp.*, 
@@ -240,29 +240,97 @@ class ProfileUpdateView(APIView):
                 LEFT JOIN restaurants r ON r.id = dp.restaurant_id
                 WHERE dp.user_id = %s
                 """,
-                (user['id'],),
+                (user.id,),                     # ← user.id
                 fetch_one=True
             )
-        elif user['user_type'] == 'customer':
+        elif user.user_type == 'customer':
             profile_data = execute_query(
                 "SELECT * FROM customer_profiles WHERE user_id = %s",
-                (user['id'],),
+                (user.id,),
                 fetch_one=True
             )
         
         return Response({
             'user': {
-                'id': str(user['id']),
-                'email': user['email'],
-                'phone_number': user['phone_number'],
-                'full_name': user['full_name'],
-                'user_type': user['user_type'],
-                'is_verified': user['is_verified'],
-                'profile_image_url': user.get('profile_image_url')
+                'id': str(user.id),
+                'email': user.email,
+                'phone_number': getattr(user, 'phone_number', None),
+                'full_name': user.full_name,
+                'user_type': user.user_type,
+                'is_verified': user.is_verified,
+                'profile_image_url': getattr(user, 'profile_image_url', None)
             },
             'profile': profile_data or {}
         })
 
+    # ← ЭНДЭЭС PATCH метод нэмнэ
+    def patch(self, request):
+        user = request.user
+        data = request.data
+
+        if not data:
+            return Response({"detail": "Засах талбар оруулаагүй байна"}, status=400)
+
+        updated = False
+
+        user_updates = {}
+        if 'full_name' in data:
+            user_updates['full_name'] = data['full_name']
+            updated = True
+        if 'profile_image_url' in data:
+            user_updates['profile_image_url'] = data['profile_image_url']
+            updated = True
+
+        if user_updates:
+            set_clause = ", ".join([f"{k} = %s" for k in user_updates])
+            values = list(user_updates.values())
+            values.append(str(user['id']))               # ← user['id'] болгосон
+
+            execute_update(
+                f"UPDATE users SET {set_clause} WHERE id = %s",
+                tuple(values)
+            )
+
+        # Customer profile
+        if user['user_type'] == 'customer':             # ← dict шиг хандана
+            customer_updates = {}
+            if 'default_address' in data:
+                customer_updates['default_address'] = data['default_address']
+            if 'latitude' in data:
+                customer_updates['latitude'] = data['latitude']
+            if 'longitude' in data:
+                customer_updates['longitude'] = data['longitude']
+
+            if customer_updates:
+                set_clause = ", ".join([f"{k} = %s" for k in customer_updates])
+                values = list(customer_updates.values())
+                values.append(str(user['id']))           # ← user['id']
+
+                execute_update(
+                    f"UPDATE customer_profiles SET {set_clause} WHERE user_id = %s",
+                    tuple(values)
+                )
+                updated = True
+
+        # Шинэчлэгдсэн user-ийг буцаах
+        updated_user = execute_query(
+            "SELECT * FROM users WHERE id = %s",
+            (str(user['id']),),
+            fetch_one=True
+        )
+
+        return Response({
+            'message': 'Профайл амжилттай шинэчлэгдлээ' if updated else 'Өөрчлөлт хийгдээгүй',
+            'user': {
+                'id': str(updated_user['id']),
+                'email': updated_user['email'],
+                'phone_number': updated_user['phone_number'],
+                'full_name': updated_user['full_name'],
+                'user_type': updated_user['user_type'],
+                'is_verified': updated_user['is_verified'],
+                'profile_image_url': updated_user.get('profile_image_url')
+            }
+        }, status=status.HTTP_200_OK)
 
 class ProfileView(APIView):
     authentication_classes = [JWTAuthentication]
