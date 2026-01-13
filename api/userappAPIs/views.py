@@ -1,4 +1,5 @@
 from datetime import datetime
+import random
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -20,59 +21,95 @@ class CreateOrderView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        user = request.user
-        data = request.data
+        try:
+            user = request.user
+            data = request.data
 
-        # Зөвхөн customer order үүсгэнэ
-        if user['user_type'] != 'customer':
-            return Response(
-                {'error': 'Зөвхөн customer захиалга үүсгэх боломжтой'},
-                status=status.HTTP_403_FORBIDDEN
+            # Зөвхөн customer order үүсгэнэ
+            if user['user_type'] != 'customer':
+                return Response(
+                    {'error': 'Зөвхөн customer захиалга үүсгэх боломжтой'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            location = data.get('location')
+            status_value = data.get('status', 'pending')
+
+            if not location:
+                return Response(
+                    {'error': 'location заавал шаардлагатай'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Захиалгын хоолнуудыг урьдчилан шалгах
+            items = data.get('items', [])
+            if not items:
+                return Response({'error': 'Захиалгад хоол сонгоогүй байна'}, status=status.HTTP_400_BAD_REQUEST)
+
+            for item in items:
+                food_id = item.get('foodID')
+                # Хоол баазад байгаа эсэхийг шалгах
+                food_exists = execute_query('SELECT 1 FROM tbl_food WHERE "foodID" = %s', (food_id,), fetch_one=True)
+                if not food_exists:
+                    return Response(
+                        {'error': f'Хоолны ID {food_id} олдсонгүй. Та зөв ID оруулна уу.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # orderID-г автоматаар үүсгэх (timestamp ашиглан давхцахгүй бүхэл тоо үүсгэх)
+            order_id = int(datetime.now().timestamp())
+
+            order = execute_insert(
+                """
+                INSERT INTO tbl_order ("orderID", "userID", date, location, status)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING "orderID", "userID", date, location, status
+                """,
+                (
+                    order_id,
+                    str(user['id']),
+                    datetime.now().date(),
+                    location,
+                    status_value
+                )
             )
 
-        location = data.get('location')
-        status_value = data.get('status', 'pending')
+            if not order:
+                return Response(
+                    {'error': 'Захиалга үүсгэхэд алдаа гарлаа'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
-        if not location:
-            return Response(
-                {'error': 'location заавал шаардлагатай'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # Захиалгын хоолнуудыг бүртгэх
+            for item in items:
+                # ID-г гараар үүсгэх (random ашиглан)
+                item_id = random.randint(1, 2147483647)
+                execute_insert(
+                    """
+                    INSERT INTO tbl_orderfood ("ID", "orderID", "foodID", stock, price)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        item_id,
+                        order['orderID'],
+                        item.get('foodID'),
+                        item.get('stock'),
+                        item.get('price')
+                    )
+                )
 
-        # orderID-г автоматаар үүсгэх (timestamp ашиглан давхцахгүй бүхэл тоо үүсгэх)
-        order_id = int(datetime.now().timestamp() * 1000000)
-
-        order = execute_insert(
-            """
-            INSERT INTO tbl_order ("orderID", "userID", date, location, status)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING "orderID", "userID", date, location, status
-            """,
-            (
-                order_id,
-                str(user['id']),
-                datetime.now().date(),
-                location,
-                status_value
-            )
-        )
-
-        if not order:
-            return Response(
-                {'error': 'Захиалга үүсгэхэд алдаа гарлаа'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        return Response({
-            'message': 'Захиалга амжилттай үүслээ',
-            'order': {
-                'orderID': order['orderID'],
-                'userID': order['userID'],
-                'date': order['date'],
-                'location': order['location'],
-                'status': order['status']
-            }
-        }, status=status.HTTP_201_CREATED)
+            return Response({
+                'message': 'Захиалга амжилттай үүслээ',
+                'order': {
+                    'orderID': order['orderID'],
+                    'userID': order['userID'],
+                    'date': order['date'],
+                    'location': order['location'],
+                    'status': order['status']
+                }
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class OrderListView(APIView):
     authentication_classes = [JWTAuthentication]

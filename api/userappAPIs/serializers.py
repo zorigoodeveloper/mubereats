@@ -49,8 +49,8 @@ class SignInSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, required=True)
 
 class OrderItemSerializer(serializers.Serializer):
-    menu_item_id = serializers.IntegerField()
-    quantity = serializers.IntegerField(min_value=1)
+    foodID = serializers.IntegerField()
+    stock = serializers.IntegerField(min_value=1)
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 class OrderCreateSerializer(serializers.Serializer):
