@@ -309,9 +309,9 @@ class FoodCreateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_food ("foodName","resID","catID","price","description","image")
-                    VALUES (%s,%s,%s,%s,%s,%s) RETURNING "foodID"
-                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image','')])
+                    INSERT INTO tbl_food ("foodName","resID","catID","price","description","image","portion")
+                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING "foodID"
+                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image',''), d.get('portion','')])
                 foodID = c.fetchone()[0]
             return Response({"message": "Food added", "foodID": foodID}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

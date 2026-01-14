@@ -61,6 +61,7 @@ class FoodSerializer(serializers.Serializer):
     price = serializers.IntegerField()
     description = serializers.CharField(required=False, allow_blank=True)
     image = serializers.CharField(required=False, allow_blank=True)
+    portion = serializers.CharField(max_length=50, required=False)  # Порц
 
 # ------------------- DRINK -------------------
 class DrinkSerializer(serializers.Serializer):
@@ -89,3 +90,21 @@ class PackageDrinkSerializer(serializers.Serializer):
     package_id = serializers.IntegerField()
     drink_id = serializers.IntegerField()
     quantity = serializers.IntegerField()
+
+
+
+# Serializer for each food in an order
+class OrderFoodSerializer(serializers.Serializer):
+    foodID = serializers.IntegerField()
+    foodName = serializers.CharField(max_length=200)
+    quantity = serializers.IntegerField()
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+# Serializer for each order
+class RestaurantOrderSerializer(serializers.Serializer):
+    orderID = serializers.IntegerField()
+    userID = serializers.IntegerField()
+    date = serializers.CharField()  # you can use serializers.DateTimeField() if you parse the date
+    location = serializers.CharField(max_length=300)
+    status = serializers.CharField(max_length=50)
+    foods = OrderFoodSerializer(many=True)  # nested list of foods    
