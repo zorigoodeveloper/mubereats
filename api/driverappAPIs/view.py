@@ -81,6 +81,94 @@ class SignUpView(APIView):
         )
 
 
+class UpdateProfileView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        worker = request.user
+        worker_id = worker["id"]
+
+        # 1) Get current profile (so we can merge fields safely)
+        current = execute_query(
+            """
+            SELECT "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg", "image"
+            FROM "tbl_worker"
+            WHERE "workerID" = %s
+            """,
+            (worker_id,),
+            fetch_one=True
+        )
+
+        if not current:
+            return Response({"error": "Профайл олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2) If phone/email is being changed, check duplicates
+        new_email = request.data.get("email", current["email"])
+        new_phone = request.data.get("phone", current["phone"])
+
+        dup = execute_query(
+            """
+            SELECT "workerID"
+            FROM "tbl_worker"
+            WHERE ("email" = %s OR "phone" = %s) AND "workerID" <> %s
+            """,
+            (new_email, new_phone, worker_id),
+            fetch_one=True
+        )
+        if dup:
+            return Response(
+                {"error": "Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3) Merge fields (only update what's provided)
+        workerName = request.data.get("workerName", current["workerName"])
+        phone = new_phone
+        email = new_email
+        vehicleType = request.data.get("vehicleType", current["vehicleType"])
+        vehicleReg = request.data.get("vehicleReg", current["vehicleReg"])
+        image = request.data.get("image", current["image"])
+
+        # 4) Update + RETURNING
+        updated = execute_insert(
+            """
+            UPDATE "tbl_worker"
+            SET "workerName" = %s,
+                "phone" = %s,
+                "email" = %s,
+                "vehicleType" = %s,
+                "vehicleReg" = %s,
+                "image" = %s
+            WHERE "workerID" = %s
+            RETURNING "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg", "image"
+            """,
+            (workerName, phone, email, vehicleType, vehicleReg, image, worker_id)
+        )
+
+        return Response(
+            {
+                "message": "Профайл амжилттай шинэчлэгдлээ",
+                "worker": {
+                    "workerID": str(updated["workerID"]),
+                    "workerName": updated["workerName"],
+                    "email": updated["email"],
+                    "phone": updated["phone"],
+                    "vehicleType": updated["vehicleType"],
+                    "vehicleReg": updated["vehicleReg"],
+                    "image": updated.get("image"),
+                },
+            },
+            status=status.HTTP_200_OK
+        )
+
+    def put(self, request):
+        """
+        Full update (requires all fields).
+        If you don't want strict full update, you can just call patch internally.
+        """
+        return self.patch(request)
+
 class SignInView(APIView):
     permission_classes = [AllowAny]
 
