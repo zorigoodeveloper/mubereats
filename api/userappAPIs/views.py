@@ -297,7 +297,101 @@ class ProfileUpdateView(APIView):
                 'profile_image_url': user.get('profile_image_url')
             },
             'profile': profile_data or {}
-        })
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        user = request.user
+        data = request.data
+
+        if not data:
+            return Response({"detail": "Өөрчлөх талбар оруулаагүй байна"}, status=400)
+
+        updated = False
+
+        # 1. users хүснэгтэд нийтлэг талбарууд засах
+        user_updates = {}
+        if 'full_name' in data:
+            user_updates['full_name'] = data['full_name']
+            updated = True
+        if 'profile_image_url' in data:
+            user_updates['profile_image_url'] = data['profile_image_url']
+            updated = True
+
+        if user_updates:
+            set_clause = ", ".join([f"{k} = %s" for k in user_updates])
+            values = list(user_updates.values())
+            values.append(str(user['id']))
+
+            execute_update(
+                f"UPDATE users SET {set_clause} WHERE id = %s",
+                tuple(values)
+            )
+
+        # 2. Customer профайл засах
+        if user['user_type'] == 'customer':
+            customer_updates = {}
+            if 'default_address' in data:
+                customer_updates['default_address'] = data['default_address']
+            if 'latitude' in data:
+                customer_updates['latitude'] = data['latitude']
+            if 'longitude' in data:
+                customer_updates['longitude'] = data['longitude']
+
+            if customer_updates:
+                set_clause = ", ".join([f"{k} = %s" for k in customer_updates])
+                values = list(customer_updates.values())
+                values.append(str(user['id']))
+
+                execute_update(
+                    f"UPDATE customer_profiles SET {set_clause} WHERE user_id = %s",
+                    tuple(values)
+                )
+                updated = True
+
+        # 3. Driver профайл засах (админ л засах ёстой бол хасах эсвэл шалгах боломжтой)
+        # Одоогоор customer-д төвлөрүүлсэн тул driver-д зөвхөн нийтлэг талбарыг засна
+
+        # Шинэчлэгдсэн мэдээллийг буцааж харуулах (GET-ийн логикийг давтах)
+        updated_user = execute_query(
+            "SELECT * FROM users WHERE id = %s",
+            (str(user['id']),),
+            fetch_one=True
+        )
+
+        profile_data = None
+        if updated_user['user_type'] == 'driver':
+            profile_data = execute_query(
+                """
+                SELECT dp.*, 
+                       (dp.restaurant_id IS NOT NULL AND dp.is_approved) AS is_active_driver,
+                       r.name AS restaurant_name
+                FROM driver_profiles dp
+                LEFT JOIN restaurants r ON r.id = dp.restaurant_id
+                WHERE dp.user_id = %s
+                """,
+                (updated_user['id'],),
+                fetch_one=True
+            )
+        elif updated_user['user_type'] == 'customer':
+            profile_data = execute_query(
+                "SELECT * FROM customer_profiles WHERE user_id = %s",
+                (updated_user['id'],),
+                fetch_one=True
+            )
+
+        return Response({
+            'message': 'Профайл амжилттай шинэчлэгдлээ' if updated else 'Өөрчлөлт хийгдээгүй',
+            'user': {
+                'id': str(updated_user['id']),
+                'email': updated_user['email'],
+                'phone_number': updated_user['phone_number'],
+                'full_name': updated_user['full_name'],
+                'user_type': updated_user['user_type'],
+                'is_verified': updated_user['is_verified'],
+                'profile_image_url': updated_user.get('profile_image_url')
+            },
+            'profile': profile_data or {}
+        }, status=status.HTTP_200_OK)
 
 
 class ProfileView(APIView):
