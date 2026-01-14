@@ -316,6 +316,22 @@ class ProfileUpdateView(APIView):
         if 'profile_image_url' in data:
             user_updates['profile_image_url'] = data['profile_image_url']
             updated = True
+        if 'email' in data:
+            new_email = data['email'].strip().lower()
+            if new_email == user['email']:
+                return Response({"error": "Одоогийн имэйлтэй ижил байна"}, status=400)
+            
+            # Давхардсан имэйл байгаа эсэх шалгах
+            existing = execute_query(
+                "SELECT id FROM users WHERE email = %s AND id != %s",
+                (new_email, user['id']),
+                fetch_one=True
+            )
+            if existing:
+                return Response({"error": "Энэ имэйл аль хэдийн бүртгэлтэй байна"}, status=400)
+            
+            user_updates['email'] = new_email
+            updated = True
 
         if user_updates:
             set_clause = ", ".join([f"{k} = %s" for k in user_updates])
@@ -348,10 +364,10 @@ class ProfileUpdateView(APIView):
                 )
                 updated = True
 
-        # 3. Driver профайл засах (админ л засах ёстой бол хасах эсвэл шалгах боломжтой)
-        # Одоогоор customer-д төвлөрүүлсэн тул driver-д зөвхөн нийтлэг талбарыг засна
+        # 3. Driver профайл засах (хэрэв шаардлагатай бол нэмж болно)
+        # Жишээ: license_number, vehicle_type гэх мэт
 
-        # Шинэчлэгдсэн мэдээллийг буцааж харуулах (GET-ийн логикийг давтах)
+        # Шинэчлэгдсэн мэдээллийг буцааж харуулах
         updated_user = execute_query(
             "SELECT * FROM users WHERE id = %s",
             (str(user['id']),),
