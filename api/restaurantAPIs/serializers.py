@@ -85,7 +85,7 @@ class PackageFoodSerializer(serializers.Serializer):
 
 # ------------------- PACKAGE DRINK -------------------
 class PackageDrinkSerializer(serializers.Serializer):
-    ID = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(required=False)
     package_id = serializers.IntegerField()
     drink_id = serializers.IntegerField()
     quantity = serializers.IntegerField()
