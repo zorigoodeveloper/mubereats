@@ -76,7 +76,7 @@ urlpatterns = [
     path('package-drink/delete/<int:id>/', PackageDrinkDeleteView.as_view()),
 
     # category
-    path('restype/', RestaurantCategoryCreateView.as_view(), name='restype-create'),
+    path('restype/add/', RestaurantCategoryCreateView.as_view(), name='restype-create'),
     path('restype/list/', RestaurantCategoryListView.as_view(), name='restype-list'),
     path('restype/update/<int:id>/', RestaurantCategoryUpdateView.as_view(), name='restype-update'),
     path('restype/delete/<int:id>/', RestaurantCategoryDeleteView.as_view(), name='restype-delete'),

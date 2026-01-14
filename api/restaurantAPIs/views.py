@@ -67,6 +67,7 @@ class RestaurantCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RestaurantListView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     """
     Бүх ресторануудыг жагсаана.
     openNow flag ашиглан одоогийн цагт нээлттэй эсэхийг харуулна.
@@ -107,6 +108,7 @@ class RestaurantListView(APIView):
         return Response(data)
 
 class RestaurantUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, resID):
         serializer = RestaurantSerializer(data=request.data)
         if serializer.is_valid():
@@ -121,6 +123,7 @@ class RestaurantUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RestaurantDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, resID):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_restaurant WHERE "resID"=%s', [resID])
@@ -249,6 +252,7 @@ class RestaurantStatusCheckView(APIView):
 
 # ------------------- FOOD CATEGORY -------------------
 class FoodCategoryListView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
             c.execute('SELECT "catID", "catName" FROM tbl_foodtype')
@@ -257,7 +261,7 @@ class FoodCategoryListView(APIView):
         return Response(data)
 
 class FoodCategoryCreateView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = FoodCategorySerializer(data=request.data)
         if serializer.is_valid():
@@ -269,6 +273,7 @@ class FoodCategoryCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodCategoryUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, catID):
         serializer = FoodCategorySerializer(data=request.data)
         if serializer.is_valid():
@@ -279,6 +284,7 @@ class FoodCategoryUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodCategoryDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, catID):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_foodtype WHERE "catID"=%s', [catID])
@@ -287,6 +293,7 @@ class FoodCategoryDeleteView(APIView):
 
 # ------------------- FOOD -------------------
 class FoodListView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
             c.execute('SELECT "foodID","foodName","resID","catID","price","description","image" FROM tbl_food')
@@ -295,6 +302,7 @@ class FoodListView(APIView):
         return Response(data)
 
 class FoodCreateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = FoodSerializer(data=request.data)
         if serializer.is_valid():
@@ -309,6 +317,7 @@ class FoodCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, foodID):
         serializer = FoodSerializer(data=request.data)
         if serializer.is_valid():
@@ -322,6 +331,7 @@ class FoodUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, foodID):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_food WHERE "foodID"=%s', [foodID])
@@ -330,6 +340,7 @@ class FoodDeleteView(APIView):
 
 # ------------------- DRINK -------------------
 class DrinkListView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
             c.execute('SELECT "drink_id","drink_name","price","description" FROM tbl_drinks')
@@ -338,6 +349,7 @@ class DrinkListView(APIView):
         return Response(data)
 
 class DrinkCreateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
@@ -352,6 +364,7 @@ class DrinkCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DrinkUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, drink_id):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
@@ -364,6 +377,7 @@ class DrinkUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DrinkDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, drink_id):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_drinks WHERE "drink_id"=%s', [drink_id])
@@ -372,6 +386,7 @@ class DrinkDeleteView(APIView):
 
 # ------------------- PACKAGE -------------------
 class PackageListView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
             c.execute('SELECT "package_id","restaurant_id","package_name","price" FROM tbl_package')
@@ -380,6 +395,7 @@ class PackageListView(APIView):
         return Response(data)
 
 class PackageCreateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = PackageSerializer(data=request.data)
         if serializer.is_valid():
@@ -394,6 +410,7 @@ class PackageCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, package_id):
         serializer = PackageSerializer(data=request.data)
         if serializer.is_valid():
@@ -406,6 +423,7 @@ class PackageUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, package_id):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_package WHERE "package_id"=%s', [package_id])
@@ -414,14 +432,16 @@ class PackageDeleteView(APIView):
 
 # ------------------- PACKAGE FOOD -------------------
 class PackageFoodListView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "ID","package_id","food_id","quantity" FROM tbl_package_food')
+            c.execute('SELECT "id","package_id","food_id","quantity" FROM tbl_package_food')
             rows = c.fetchall()
         data = [{"id": r[0], "package_id": r[1], "food_id": r[2], "quantity": r[3]} for r in rows]
         return Response(data)
 
 class PackageFoodCreateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = PackageFoodSerializer(data=request.data)
         if serializer.is_valid():
@@ -436,6 +456,7 @@ class PackageFoodCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageFoodUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, id):
         serializer = PackageFoodSerializer(data=request.data)
         if serializer.is_valid():
@@ -448,6 +469,7 @@ class PackageFoodUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageFoodDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, id):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_package_food WHERE "id"=%s', [id])
@@ -455,15 +477,17 @@ class PackageFoodDeleteView(APIView):
 
 
 # ------------------- PACKAGE DRINK -------------------
-class PackageDrinkListView(APIView):
+class PackageDrinkListView(APIView):    
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "ID","package_id","drink_id","quantity" FROM tbl_package_drinks')
+            c.execute('SELECT "id","package_id","drink_id","quantity" FROM tbl_package_drinks')
             rows = c.fetchall()
         data = [{"id": r[0], "package_id": r[1], "drink_id": r[2], "quantity": r[3]} for r in rows]
         return Response(data)
 
 class PackageDrinkCreateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = PackageDrinkSerializer(data=request.data)
         if serializer.is_valid():
@@ -477,7 +501,8 @@ class PackageDrinkCreateView(APIView):
             return Response({"message": "Package Drink added", "id": id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class PackageDrinkUpdateView(APIView):
+class PackageDrinkUpdateView(APIView): 
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, id):
         serializer = PackageDrinkSerializer(data=request.data)
         if serializer.is_valid():
@@ -490,6 +515,7 @@ class PackageDrinkUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageDrinkDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, id):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_package_drinks WHERE "id"=%s', [id])
@@ -554,6 +580,7 @@ class PackageDrinkDeleteView(APIView):
 
 # ===== Create Category =====
 class RestaurantCategoryCreateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = RestaurantCategorySerializer(data=request.data)
         if serializer.is_valid():
@@ -566,7 +593,8 @@ class RestaurantCategoryCreateView(APIView):
 
 
 # ===== List Category =====
-class RestaurantCategoryListView(APIView):
+class RestaurantCategoryListView(APIView):  
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
             c.execute('SELECT "ID", "name" FROM tbl_res_type')  # double quotes-тэй
@@ -577,6 +605,7 @@ class RestaurantCategoryListView(APIView):
 
 # ===== Update Category =====
 class RestaurantCategoryUpdateView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, id):
         serializer = RestaurantCategorySerializer(data=request.data)
         if serializer.is_valid():
@@ -589,6 +618,7 @@ class RestaurantCategoryUpdateView(APIView):
 
 # ===== Delete Category =====
 class RestaurantCategoryDeleteView(APIView):
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def delete(self, request, id):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_res_type WHERE "ID"=%s', [id])
