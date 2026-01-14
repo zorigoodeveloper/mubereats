@@ -69,6 +69,7 @@ class DrinkSerializer(serializers.Serializer):
     drink_name = serializers.CharField(max_length=150)
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
     description = serializers.CharField(required=False, allow_blank=True)
+    pic = serializers.CharField(max_length=255, required=False)  # new image column
 
 # ------------------- PACKAGE -------------------
 class PackageSerializer(serializers.Serializer):

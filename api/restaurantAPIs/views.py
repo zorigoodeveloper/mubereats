@@ -46,25 +46,95 @@ class RestaurantCreateView(APIView):
         serializer = RestaurantSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
-            # hash password
-            password = make_password(d.get('password', ''))
 
+            # ===== Validate required fields =====
+            required_fields = ["resName", "catID", "phone", "email", "password", "lng", "lat", "openTime", "closeTime"]
+            missing = [f for f in required_fields if not d.get(f)]
+            if missing:
+                return Response(
+                    {"error": f"Missing required fields: {', '.join(missing)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            phone = str(d.get('phone')).strip()
+            email = str(d.get('email')).strip()
+            catID = d.get('catID')
+            lng = d.get('lng')
+            lat = d.get('lat')
+            password_raw = d.get('password')
+
+            # ===== Type check =====
+            try:
+                catID = int(catID)
+                lng = float(lng)
+                lat = float(lat)
+            except ValueError:
+                return Response(
+                    {"error": "catID must be integer, lng and lat must be numeric"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # ===== Check for duplicate phone/email =====
             with connection.cursor() as c:
+                c.execute("""
+                    SELECT "resID" FROM tbl_restaurant
+                    WHERE "phone" = %s OR "email" = %s
+                """, [phone, email])
+                existing = c.fetchone()
+                if existing:
+                    return Response(
+                        {"error": "Phone or Email already exists"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # ===== Hash password =====
+                password_hashed = make_password(password_raw)
+
+                # ===== Insert restaurant =====
                 c.execute("""
                     INSERT INTO tbl_restaurant
                     ("resName", "catID", "phone", "password", "lng", "lat", "openTime", "closeTime", "description", "image", "email", "status")
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING "resID"
                 """, [
-                    d.get('resName',''), d.get('catID',''), d.get('phone',''), password,
-                    d.get('lng',''), d.get('lat',''), d.get('openTime',''), d.get('closeTime',''),
-                    d.get('description',''), d.get('image',''), d.get('email',''), d.get('status','active')
+                    d.get('resName',''), catID, phone, password_hashed,
+                    lng, lat, d.get('openTime',''), d.get('closeTime',''),
+                    d.get('description',''), d.get('image',''), email, d.get('status','active')
                 ])
                 res_id = c.fetchone()[0]
 
             return Response({"message": "Restaurant added", "resID": res_id}, status=status.HTTP_201_CREATED)
 
+        # Serializer validation errors
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+#http://127.0.0.1:8000/api/restaurant/profileres/5/
+class RestaurantDetailView(APIView):
+    permission_classes = [AllowAny]  
+
+    def get(self, request, res_id):
+        try:
+            res_id = int(res_id)
+        except ValueError:
+            return Response({"error": "Invalid restaurant ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with connection.cursor() as c:
+            c.execute("""
+                SELECT "resID", "resName", "catID", "phone", "email", "lng", "lat",
+                       "openTime", "closeTime", "description", "image", "status"
+                FROM tbl_restaurant
+                WHERE "resID" = %s
+            """, [res_id])
+            res = c.fetchone()
+
+        if not res:
+            return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        keys = ["resID", "resName", "catID", "phone", "email", "lng", "lat",
+                "openTime", "closeTime", "description", "image", "status"]
+        res_data = dict(zip(keys, res))
+
+        return Response({"restaurant": res_data}, status=200) 
 
 class RestaurantListView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -296,9 +366,9 @@ class FoodListView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "foodID","foodName","resID","catID","price","description","image" FROM tbl_food')
+            c.execute('SELECT "foodID","foodName","resID","catID","price","description","image","portion" FROM tbl_food')
             rows = c.fetchall()
-        data = [{"foodID": r[0], "foodName": r[1], "resID": r[2], "catID": r[3], "price": r[4], "description": r[5], "image": r[6]} for r in rows]
+        data = [{"foodID": r[0], "foodName": r[1], "resID": r[2], "catID": r[3], "price": r[4], "description": r[5], "image": r[6], "portion": r[7]} for r in rows]
         return Response(data)
 
 class FoodCreateView(APIView):
@@ -324,9 +394,9 @@ class FoodUpdateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    UPDATE tbl_food SET "foodName"=%s,"resID"=%s,"catID"=%s,"price"=%s,"description"=%s,"image"=%s
+                    UPDATE tbl_food SET "foodName"=%s,"resID"=%s,"catID"=%s,"price"=%s,"description"=%s,"image"=%s,"portion"=%s
                     WHERE "foodID"=%s
-                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image',''), foodID])
+                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image',''), d.get('portion',''), foodID])
             return Response({"message": "Food updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -343,9 +413,9 @@ class DrinkListView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "drink_id","drink_name","price","description" FROM tbl_drinks')
+            c.execute('SELECT "drink_id","drink_name","price","description","pic" FROM tbl_drinks')
             rows = c.fetchall()
-        data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3]} for r in rows]
+        data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3], "pic": r[4]} for r in rows]
         return Response(data)
 
 class DrinkCreateView(APIView):
@@ -356,9 +426,9 @@ class DrinkCreateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_drinks ("drink_name","price","description")
+                    INSERT INTO tbl_drinks ("drink_name","price","description","pic")
                     VALUES (%s,%s,%s) RETURNING "drink_id"
-                """, [d['drink_name'], d['price'], d.get('description','')])
+                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
                 drink_id = c.fetchone()[0]
             return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -371,8 +441,8 @@ class DrinkUpdateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s WHERE "drink_id"=%s
-                """, [d['drink_name'], d['price'], d.get('description',''), drink_id])
+                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s,"pic"=%s WHERE "drink_id"=%s
+                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic',''), drink_id])
             return Response({"message": "Drink updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

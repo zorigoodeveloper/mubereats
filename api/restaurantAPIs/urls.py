@@ -16,6 +16,7 @@ from .views import (
     RestaurantStatusUpdateView, 
     RestaurantStatusCheckView,
     RestaurantSigninView,
+    RestaurantDetailView,
     # FoodCategory
     FoodCategoryListView, FoodCategoryCreateView, FoodCategoryUpdateView, FoodCategoryDeleteView,
     # Food
@@ -36,6 +37,7 @@ urlpatterns = [
     # Restaurant
     path('signup/', RestaurantCreateView.as_view()),
     path('signin/', RestaurantSigninView.as_view()),  # POST
+    path('profileres/<int:res_id>/', RestaurantDetailView.as_view()),
     path('list/', RestaurantListView.as_view()),
     path('update/<int:resID>/', RestaurantUpdateView.as_view()),
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
