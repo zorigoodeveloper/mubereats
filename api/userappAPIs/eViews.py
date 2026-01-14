@@ -1,15 +1,37 @@
+
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import serializers
 from rest_framework.permissions import AllowAny
+from rest_framework import serializers
+
 from ..database import execute_query
+
+
+# =========================
+# SERIALIZERS
+# =========================
 
 class RestaurantSearchSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
-    foods = serializers.ListField(child=serializers.CharField())
 
-class RestaurantSearchAPIView(APIView):
+
+class FoodSearchSerializer(serializers.Serializer):
+    food_id = serializers.IntegerField()
+    food_name = serializers.CharField()
+    restaurant = serializers.DictField()
+
+
+# =========================
+# RESTAURANT SEARCH (NAME ONLY)
+# =========================
+
+class RestaurantOnlySearchAPIView(APIView):
+    """
+    🔍 Restaurant name-аар л хайна
+    жишээ: /api/search/restaurants/?q=nomads
+    """
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -17,36 +39,72 @@ class RestaurantSearchAPIView(APIView):
         if not q:
             return Response([])
 
-        # Restaurant search
         restaurants = execute_query(
             """
-            SELECT DISTINCT
-                r."resID",
-                r."resName"
-            FROM tbl_restaurant r
-            LEFT JOIN tbl_food f ON f."resID" = r."resID"
-            WHERE
-                r."resName" ILIKE %s
-                OR f."foodName" ILIKE %s
-            ORDER BY r."resName"
+            SELECT
+                "resID",
+                "resName"
+            FROM tbl_restaurant
+            WHERE "resName" ILIKE %s
+            ORDER BY "resName"
             """,
-            (f"%{q}%", f"%{q}%")
+            (f"%{q}%",)
         )
 
+        data = [
+            {
+                "id": r["resID"],
+                "name": r["resName"],
+            }
+            for r in restaurants
+        ]
 
-        results = []
-        for r in restaurants:
-            # Foods query
-            foods = execute_query(
-                'SELECT "foodName" FROM tbl_food WHERE "resID" = %s AND "foodName" ILIKE %s',
-                (r['resID'], f"%{q}%")
-            )
+        serializer = RestaurantSearchSerializer(data, many=True)
+        return Response(serializer.data)
 
-            results.append({
-                "id": r['resID'],
-                "name": r['resName'],
-                "foods": [f['name'] for f in foods] if foods else []
-            })
 
-        serializer = RestaurantSearchSerializer(results, many=True)
+# =========================
+# FOOD SEARCH (FOOD NAME ONLY)
+# =========================
+
+class FoodOnlySearchAPIView(APIView):
+    """
+    🍕 Food name-аар л хайна
+    жишээ: /api/search/foods/?q=pizza
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        q = request.GET.get("q", "").strip()
+        if not q:
+            return Response([])
+
+        foods = execute_query(
+            """
+            SELECT
+                f."foodID",
+                f."foodName",
+                r."resID",
+                r."resName"
+            FROM tbl_food f
+            JOIN tbl_restaurant r ON r."resID" = f."resID"
+            WHERE f."foodName" ILIKE %s
+            ORDER BY f."foodName"
+            """,
+            (f"%{q}%",)
+        )
+
+        data = [
+            {
+                "food_id": f["foodID"],
+                "food_name": f["foodName"],
+                "restaurant": {
+                    "id": f["resID"],
+                    "name": f["resName"],
+                }
+            }
+            for f in foods
+        ]
+
+        serializer = FoodSearchSerializer(data, many=True)
         return Response(serializer.data)

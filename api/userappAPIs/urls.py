@@ -1,8 +1,19 @@
 from django.urls import path
-from .views import CreateOrderView, CustomerSignUpView, SignInView, ProfileView, UserSearchAPIView, ProfileUpdateView, OrderListView, AddToCartView, CartView, CartItemUpdateView, CartItemDeleteView
-#  AddToCartView, CartView, CartItemUpdateView, CartItemDeleteView    --------end bas    
+from .views import (
+    CreateOrderView,
+    CustomerSignUpView,
+    SignInView,
+    ProfileView,
+    UserSearchAPIView,
+    ProfileUpdateView,
+    OrderListView,
+    AddToCartView,
+    CartView,
+    CartItemUpdateView,
+    CartItemDeleteView,
+)
+from .eViews import RestaurantOnlySearchAPIView, FoodOnlySearchAPIView
 
-from .eViews import RestaurantSearchAPIView
 urlpatterns = [
     path('auth/signup/customer/', CustomerSignUpView.as_view(), name='signup'),
     path('auth/signin/customer/', SignInView.as_view(), name='signin'),
@@ -10,18 +21,17 @@ urlpatterns = [
     path("user/search/", UserSearchAPIView.as_view(), name="user-search"),
 
     path('auth/profile/customer/', ProfileView.as_view(), name='profile'),
-    path('auth/profile/update/customer/', ProfileUpdateView.as_view(), name='profile'),
-    
+    path('auth/profile/update/customer/', ProfileUpdateView.as_view(), name='profile-update'),
+
     path('orders/create/', CreateOrderView.as_view()),
     path('order/list/', OrderListView.as_view(), name='order-list'),
 
-
-    #end aldaa garaad baina zasaare ho
     path('cart/add/', AddToCartView.as_view(), name='add-to-cart'),
     path('cart/', CartView.as_view(), name='cart-detail'),
     path('cart/item/<int:cart_item_id>/', CartItemUpdateView.as_view(), name='cart-item-update'),
     path('cart/item/<int:cart_item_id>/delete/', CartItemDeleteView.as_view(), name='cart-item-delete'),
 
-    path("restaurants/search/", RestaurantSearchAPIView.as_view()),
-
+    # SEARCH
+    path("restaurants/search/", RestaurantOnlySearchAPIView.as_view(), name="search-restaurants"),
+    path("foods/search/", FoodOnlySearchAPIView.as_view(), name="search-foods"),
 ]
