@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..database import execute_query, execute_insert, execute_update
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer
+from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer
 
 # Dummy data
 USERS = [
@@ -28,7 +28,7 @@ class CreateOrderView(APIView):
             # Зөвхөн customer order үүсгэнэ
             if user['user_type'] != 'customer':
                 return Response(
-                    {'error': 'Зөвхөн customer захиалга үүсгэх боломжтой'},
+                    {'error': 'Зөвхөн үйлчлүүлэгч захиалга үүсгэх боломжтой'},
                     status=status.HTTP_403_FORBIDDEN
                 )
 
@@ -52,7 +52,7 @@ class CreateOrderView(APIView):
                 food_exists = execute_query('SELECT 1 FROM tbl_food WHERE "foodID" = %s', (food_id,), fetch_one=True)
                 if not food_exists:
                     return Response(
-                        {'error': f'Хоолны ID {food_id} олдсонгүй. Та зөв ID оруулна уу.'},
+                        {'error': f'Таны сонгосон хоол дууссан байна.'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
@@ -339,7 +339,9 @@ class ProfileView(APIView):
                 'profile_image_url': user.get('profile_image_url')
             },
             'profile': profile_data or {}
+
         })
+    
 class AddToCartView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -535,3 +537,4 @@ class CartItemDeleteView(APIView):
             return Response({"error": "Энэ хоол таны сагсанд байхгүй"}, status=404)
 
         return Response({"message": "Сагснаас устгагдлаа"}, status=204)
+    
