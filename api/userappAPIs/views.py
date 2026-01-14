@@ -432,6 +432,7 @@ class CartView(APIView):
         if user.user_type != 'customer':
             return Response({"error": "Зөвхөн customer сагс харах боломжтой"}, status=403)
 
+        # Сагс олох
         cart = execute_query(
             """
             SELECT "cartID" FROM tbl_cart 
@@ -443,28 +444,36 @@ class CartView(APIView):
         )
 
         if not cart:
-            return Response({"cart": None, "items": []}, status=200)
+            return Response({
+                "cart": None,
+                "items": [],
+                "message": "Таны сагс хоосон байна"
+            }, status=200)
 
+        cart_id = cart['cartID']
+
+        # tbl_food хүснэгттэй холбож байна (foodName-г давхар ишлэлтэй бичсэн)
         items = execute_query(
             """
             SELECT 
-                cf."foodId",
+                cf."foodID" AS food_id,
                 cf.stock AS quantity,
-                f.name AS food_name,           -- foods хүснэгтийн нэр (тохируулна уу)
-                f.price AS unit_price,         -- foods хүснэгтийн үнэ
+                f."foodName" AS food_name,    
+                f.price AS unit_price,
                 (cf.stock * f.price) AS subtotal
             FROM tbl_cart_food cf
-            LEFT JOIN food f ON f.foodID = cf."foodID"
+            LEFT JOIN tbl_food f ON f."foodID" = cf."foodID"
             WHERE cf."cartID" = %s AND cf."userID" = %s
             ORDER BY cf."foodID"
             """,
-            (cart['cartID'], user.id)
+            (cart_id, user.id)
         )
 
+        # Нийт үнэ тооцоолох
         total = sum(float(item['subtotal']) for item in items or [])
 
         return Response({
-            "cartID": cart['cartID'],
+            "cartID": cart_id,
             "total_items": len(items or []),
             "total_price": str(total),
             "items": items or []
@@ -473,7 +482,7 @@ class CartItemUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def patch(self, request, food_id):
+    def patch(self, request, cart_item_id): 
         user = request.user
         
         if user.user_type != 'customer':
@@ -482,16 +491,22 @@ class CartItemUpdateView(APIView):
         data = request.data
         new_quantity = data.get('quantity')
 
-        if new_quantity is None or not isinstance(new_quantity, int) or new_quantity < 1:
+        # quantity-г int болгох
+        try:
+            new_quantity = int(new_quantity)
+        except (ValueError, TypeError):
+            return Response({"error": "quantity нь бүхэл тоо байх ёстой"}, status=400)
+
+        if new_quantity is None or new_quantity < 1:
             return Response({"error": "Шинэ тоо (quantity) 1-ээс их бүхэл тоо байх ёстой"}, status=400)
 
         updated = execute_update(
             """
             UPDATE tbl_cart_food 
             SET stock = %s 
-            WHERE "foodId" = %s AND "userID" = %s
+            WHERE "foodID" = %s AND "userID" = %s
             """,
-            (new_quantity, food_id, user.id)
+            (new_quantity, cart_item_id, user.id)  # ← cart_item_id гэж өөрчил
         )
 
         if updated == 0:
@@ -502,7 +517,7 @@ class CartItemDeleteView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def delete(self, request, food_id):
+    def delete(self, request, cart_item_id):  # ← ЭНД cart_item_id гэж өөрчил
         user = request.user
         
         if user.user_type != 'customer':
@@ -511,9 +526,9 @@ class CartItemDeleteView(APIView):
         deleted = execute_update(
             """
             DELETE FROM tbl_cart_food 
-            WHERE "foodId" = %s AND "userID" = %s
+            WHERE "foodID" = %s AND "userID" = %s
             """,
-            (food_id, user.id)
+            (cart_item_id, user.id)  # ← cart_item_id гэж өөрчил
         )
 
         if deleted == 0:
