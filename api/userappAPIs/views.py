@@ -1,12 +1,12 @@
 from datetime import datetime
-import random
+import random, time
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..database import execute_query, execute_insert, execute_update
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer
+from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer
 
 # Dummy data
 USERS = [
@@ -340,3 +340,183 @@ class ProfileView(APIView):
             },
             'profile': profile_data or {}
         })
+class AddToCartView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer сагс ашиглаж болно"}, status=403)
+
+        data = request.data
+        food_id = data.get('foodID')
+        quantity = data.get('quantity', 1)
+
+        if not food_id or not isinstance(quantity, int) or quantity < 1:
+            return Response({"error": "foodId болон зөв quantity (1-ээс их тоо) заавал шаардлагатай"}, status=400)
+
+        # 1. Хэрэглэгчийн сагс олох
+        cart = execute_query(
+            """
+            SELECT "cartID" FROM tbl_cart 
+            WHERE "userID" = %s
+            LIMIT 1
+            """,
+            (user.id,),
+            fetch_one=True
+        )
+
+        if cart:
+            cart_id = cart['cartID']
+        else:
+            # Шинэ cartID гар аргаар үүсгэх (bigint-д тохирох тоо)
+            # timestamp-г их тоо болгож (миллисек * 1000 + random)
+    
+            new_cart_id = int(time.time() * 1000000) + random.randint(1, 999999)  # өвөрмөц байлгах
+
+            cart = execute_insert(
+                """
+                INSERT INTO tbl_cart ("cartID", "userID") 
+                VALUES (%s, %s) 
+                RETURNING "cartID"
+                """,
+                (new_cart_id, user.id)
+            )
+            cart_id = cart['cartID']
+
+        # 2. Энэ хоол аль хэдийн байгаа эсэх шалгах
+        existing = execute_query(
+            """
+            SELECT "cartID", stock 
+            FROM tbl_cart_food 
+            WHERE "cartID" = %s AND "foodID" = %s AND "userID" = %s
+            """,
+            (cart_id, food_id, user.id),
+            fetch_one=True
+        )
+
+        if existing:
+            new_quantity = existing['stock'] + quantity
+            execute_update(
+                """
+                UPDATE tbl_cart_food 
+                SET stock = %s 
+                WHERE "cartID" = %s AND "foodID" = %s AND "userID" = %s
+                """,
+                (new_quantity, cart_id, food_id, user.id)
+            )
+        else:
+            execute_insert(
+                """
+                INSERT INTO tbl_cart_food ("cartID", "userID", "foodID", stock)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (cart_id, user.id, food_id, quantity)
+            )
+
+        return Response({
+            "message": "Сагсанд амжилттай нэмэгдлээ",
+            "foodId": food_id,
+            "quantity_added": quantity,
+            "cartID": cart_id
+        }, status=201)
+class CartView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer сагс харах боломжтой"}, status=403)
+
+        cart = execute_query(
+            """
+            SELECT "cartID" FROM tbl_cart 
+            WHERE "userID" = %s
+            LIMIT 1
+            """,
+            (user.id,),
+            fetch_one=True
+        )
+
+        if not cart:
+            return Response({"cart": None, "items": []}, status=200)
+
+        items = execute_query(
+            """
+            SELECT 
+                cf."foodId",
+                cf.stock AS quantity,
+                f.name AS food_name,           -- foods хүснэгтийн нэр (тохируулна уу)
+                f.price AS unit_price,         -- foods хүснэгтийн үнэ
+                (cf.stock * f.price) AS subtotal
+            FROM tbl_cart_food cf
+            LEFT JOIN food f ON f.foodID = cf."foodID"
+            WHERE cf."cartID" = %s AND cf."userID" = %s
+            ORDER BY cf."foodID"
+            """,
+            (cart['cartID'], user.id)
+        )
+
+        total = sum(float(item['subtotal']) for item in items or [])
+
+        return Response({
+            "cartID": cart['cartID'],
+            "total_items": len(items or []),
+            "total_price": str(total),
+            "items": items or []
+        }, status=200)
+class CartItemUpdateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, food_id):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer засах боломжтой"}, status=403)
+
+        data = request.data
+        new_quantity = data.get('quantity')
+
+        if new_quantity is None or not isinstance(new_quantity, int) or new_quantity < 1:
+            return Response({"error": "Шинэ тоо (quantity) 1-ээс их бүхэл тоо байх ёстой"}, status=400)
+
+        updated = execute_update(
+            """
+            UPDATE tbl_cart_food 
+            SET stock = %s 
+            WHERE "foodId" = %s AND "userID" = %s
+            """,
+            (new_quantity, food_id, user.id)
+        )
+
+        if updated == 0:
+            return Response({"error": "Энэ хоол таны сагсанд байхгүй"}, status=404)
+
+        return Response({"message": "Тоо амжилттай шинэчлэгдлээ"}, status=200)
+class CartItemDeleteView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, food_id):
+        user = request.user
+        
+        if user.user_type != 'customer':
+            return Response({"error": "Зөвхөн customer устгах боломжтой"}, status=403)
+
+        deleted = execute_update(
+            """
+            DELETE FROM tbl_cart_food 
+            WHERE "foodId" = %s AND "userID" = %s
+            """,
+            (food_id, user.id)
+        )
+
+        if deleted == 0:
+            return Response({"error": "Энэ хоол таны сагсанд байхгүй"}, status=404)
+
+        return Response({"message": "Сагснаас устгагдлаа"}, status=204)
