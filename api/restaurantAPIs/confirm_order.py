@@ -1,58 +1,56 @@
-from flask import Blueprint, request, jsonify
-from datetime import datetime
-from db import get_db   # 🔴 чи өөрийн db connection helper-тэй бол тэрийг ашигла
+from rest_framework.response import Response
+from rest_framework import status
+from django.db import connection
+from rest_framework.permissions import AllowAny
 
-confirm_order_bp = Blueprint("confirm_order", __name__, url_prefix="/api/orders")
 
+class ConfirmOrderView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
-@confirm_order_bp.route("/confirm", methods=["POST"])
-def confirm_order():
-    data = request.get_json()
+    def post(self, request):
+        order_id = request.data.get("order_id")
 
-    if not data or "order_id" not in data:
-        return jsonify({
-            "success": False,
-            "message": "order_id is required"
-        }), 400
+        if not order_id:
+            return Response(
+                {"error": "order_id шаардлагатай"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    order_id = data["order_id"]
-    db = get_db()
-    cursor = db.cursor()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT status FROM tbl_order WHERE "orderID" = %s',
+                [order_id]
+            )
+            row = cursor.fetchone()
 
-    # 1️⃣ Order шалгах
-    cursor.execute(
-        "SELECT id, status FROM orders WHERE id = %s",
-        (order_id,)
-    )
-    order = cursor.fetchone()
+            if not row:
+                return Response(
+                    {"error": "Захиалга олдсонгүй"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
-    if not order:
-        return jsonify({
-            "success": False,
-            "message": "Order not found"
-        }), 404
+            if row[0] == "CONFIRMED":
+                return Response(
+                    {"message": "Захиалга аль хэдийн баталгаажсан"},
+                    status=status.HTTP_200_OK
+                )
 
-    if order[1] == "CONFIRMED":
-        return jsonify({
-            "success": False,
-            "message": "Order already confirmed"
-        }), 400
+            cursor.execute(
+                '''
+                UPDATE tbl_order
+                SET status = %s
+                WHERE "orderID" = %s
+                ''',
+                ["CONFIRMED", order_id]
+            )
 
-    # 2️⃣ Order баталгаажуулах
-    cursor.execute(
-        """
-        UPDATE orders
-        SET status = %s,
-            confirmed_at = %s
-        WHERE id = %s
-        """,
-        ("CONFIRMED", datetime.now(), order_id)
-    )
+        return Response(
+            {
+                "message": "OK",
+                "order_id": order_id,
+                "status": "CONFIRMED"
+            },
+            status=status.HTTP_200_OK
+        )
 
-    db.commit()
-
-    return jsonify({
-        "success": True,
-        "message": "Order confirmed successfully",
-        "order_id": order_id
-    }), 200

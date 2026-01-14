@@ -30,6 +30,7 @@ from .views import (
     PackageDrinkListView, PackageDrinkCreateView, PackageDrinkUpdateView, PackageDrinkDeleteView,
 )
 from .tViews import RestaurantOrderListView
+from .confirm_order import ConfirmOrderView
 
 urlpatterns = [
     # Restaurant
@@ -87,4 +88,5 @@ urlpatterns = [
 
     #order check
     path('orders/', RestaurantOrderListView.as_view()),
+    path("order/confirm/", ConfirmOrderView.as_view()),
 ]
