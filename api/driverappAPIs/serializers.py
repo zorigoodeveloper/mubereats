@@ -19,6 +19,6 @@ class DeliveryActionSerializer(serializers.Serializer):
     orderID = serializers.IntegerField()
     status = serializers.ChoiceField(choices=["accept", "picked_up", "delivered"])
 
-class DeliveryStatusSerializer(serializers.Serializer):
+class DeliveryStatusSerializer(serializers.Serializer): 
     orderID = serializers.IntegerField()
     statusID = serializers.IntegerField()
