@@ -435,7 +435,7 @@ class PackageFoodListView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "ID","package_id","food_id","quantity" FROM tbl_package_food')
+            c.execute('SELECT "id","package_id","food_id","quantity" FROM tbl_package_food')
             rows = c.fetchall()
         data = [{"id": r[0], "package_id": r[1], "food_id": r[2], "quantity": r[3]} for r in rows]
         return Response(data)
