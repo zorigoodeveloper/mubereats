@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CreateOrderView, CustomerSignUpView, SignInView, ProfileView, UserSearchAPIView, ProfileUpdateView, OrderListView
+from .views import CreateOrderView, CustomerSignUpView, SignInView, ProfileView, UserSearchAPIView, ProfileUpdateView, OrderListView, AddToCartView, CartView, CartItemUpdateView, CartItemDeleteView
 #  AddToCartView, CartView, CartItemUpdateView, CartItemDeleteView    --------end bas    
 
 from .eViews import RestaurantSearchAPIView
@@ -17,10 +17,10 @@ urlpatterns = [
 
 
     #end aldaa garaad baina zasaare ho
-    # path('cart/add/', AddToCartView.as_view(), name='add-to-cart'),
-    # path('cart/', CartView.as_view(), name='cart-detail'),
-    # path('cart/item/<int:cart_item_id>/', CartItemUpdateView.as_view(), name='cart-item-update'),
-    # path('cart/item/<int:cart_item_id>/delete/', CartItemDeleteView.as_view(), name='cart-item-delete'),
+    path('cart/add/', AddToCartView.as_view(), name='add-to-cart'),
+    path('cart/', CartView.as_view(), name='cart-detail'),
+    path('cart/item/<int:cart_item_id>/', CartItemUpdateView.as_view(), name='cart-item-update'),
+    path('cart/item/<int:cart_item_id>/delete/', CartItemDeleteView.as_view(), name='cart-item-delete'),
 
     path("restaurants/search/", RestaurantSearchAPIView.as_view()),
 
