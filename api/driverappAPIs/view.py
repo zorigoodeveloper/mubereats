@@ -43,9 +43,9 @@ class SignUpView(APIView):
         worker = execute_insert(
             """
             INSERT INTO "tbl_worker"
-            ("workerName", "phone", "email", "password_hash", "vehicleType", "vehicleReg")
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg"
+            ("workerName", "phone", "email", "password_hash", "vehicleType", "vehicleReg", "image")
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg", "image"
             """,
             (
                 data["workerName"],
@@ -54,6 +54,7 @@ class SignUpView(APIView):
                 password_hash,
                 data.get("vehicleType"),
                 data.get("vehicleReg"),
+                data.get("image"),  # 👈 шинэ
             )
         )
 
@@ -72,6 +73,7 @@ class SignUpView(APIView):
                     "phone": worker["phone"],
                     "vehicleType": worker["vehicleType"],
                     "vehicleReg": worker["vehicleReg"],
+                    "image": worker.get("image"),  # 👈 шинэ
                 },
                 "access_token": access_token,
             },
@@ -137,13 +139,21 @@ class ProfileView(APIView):
 
         profile = execute_query(
             """
-            SELECT "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg"
+            SELECT 
+                "workerID",
+                "workerName",
+                "phone",
+                "email",
+                "vehicleType",
+                "vehicleReg",
+                "image"
             FROM "tbl_worker"
             WHERE "workerID" = %s
             """,
             (worker["id"],),
             fetch_one=True
         )
+
 
         if not profile:
             return Response({"error": "Профайл олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
