@@ -1076,46 +1076,68 @@ class RestaurantMultipleImageUploadView(APIView):
         if not files:
             return Response({"error": "No image files"}, status=400)
 
+        # type: profile | logo
+        file_type = request.data.get("type", "profile")
+        if file_type not in ["profile", "logo"]:
+            return Response({"error": "Invalid type"}, status=400)
+
         storage = MediaCloudinaryStorage()
         uploaded = []
 
-        # request-аас type-г авна
-        file_type = request.data.get('type', 'profile')  # default нь profile
-        if file_type not in ['profile', 'logo']:
-            file_type = 'profile'
+        allowed_types = ["image/jpeg", "image/png", "image/webp"]
 
-        import uuid  # uuid-г import хий
-
-        for idx, image_file in enumerate(files):
-            # validation
-            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        for image_file in files[:1]:  # 🔴 1 л зураг авна
             if image_file.content_type not in allowed_types:
-                continue
-            if image_file.size > 5 * 1024 * 1024:
-                continue
+                return Response({"error": "Invalid image type"}, status=400)
 
-            file_path = f"restaurants/{resID}/{uuid.uuid4()}"
+            if image_file.size > 5 * 1024 * 1024:
+                return Response({"error": "Image too large"}, status=400)
+
+            with connection.cursor() as c:
+                # 👉 өмнө нь энэ type-тэй зураг байгаа эсэх
+                c.execute("""
+                    SELECT "imageID", "image_url"
+                    FROM tbl_restaurant_images
+                    WHERE "resID"=%s AND "type"=%s
+                """, [resID, file_type])
+
+                existing = c.fetchone()
+
+            # Cloudinary path (overwrite хийхэд тогтмол нэр ашиглана)
+            file_path = f"restaurants/{resID}/{file_type}"
+
             saved_name = storage.save(file_path, image_file)
             image_url = storage.url(saved_name)
 
-            # DB insert
             with connection.cursor() as c:
-                c.execute("""
-                    INSERT INTO tbl_restaurant_images ("resID", "image_url", "type")
-                    VALUES (%s, %s, %s)
-                    RETURNING "imageID"
-                """, [resID, image_url, file_type])
-                image_id = c.fetchone()[0]
+                if existing:
+                    # 🔁 UPDATE
+                    c.execute("""
+                        UPDATE tbl_restaurant_images
+                        SET "image_url"=%s
+                        WHERE "imageID"=%s
+                        RETURNING "imageID"
+                    """, [image_url, existing[0]])
+                    image_id = c.fetchone()[0]
+                else:
+                    # ➕ INSERT
+                    c.execute("""
+                        INSERT INTO tbl_restaurant_images ("resID", "image_url", "type")
+                        VALUES (%s,%s,%s)
+                        RETURNING "imageID"
+                    """, [resID, image_url, file_type])
+                    image_id = c.fetchone()[0]
 
-            uploaded.append({"imageID": image_id, "image_url": image_url, "type": file_type})
-
-        if not uploaded:
-            return Response({"error": "No valid images uploaded"}, status=400)
+            uploaded.append({
+                "imageID": image_id,
+                "image_url": image_url,
+                "type": file_type
+            })
 
         return Response({
-            "message": "Images uploaded",
+            "message": "Image saved",
             "uploaded": uploaded
-        }, status=201)
+        }, status=200)
 
 
 
