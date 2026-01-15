@@ -125,31 +125,82 @@ class RestaurantCreateView(APIView):
     
 #http://127.0.0.1:8000/api/restaurant/profileres/5/
 class RestaurantDetailView(APIView):
-    permission_classes = [AllowAny]  
+    permission_classes = [AllowAny]
 
     def get(self, request, res_id):
         try:
             res_id = int(res_id)
         except ValueError:
-            return Response({"error": "Invalid restaurant ID"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid restaurant ID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         with connection.cursor() as c:
             c.execute("""
-                SELECT "resID", "resName", "catID", "phone", "email", "lng", "lat",
-                       "openTime", "closeTime", "description", "image", "status"
-                FROM tbl_restaurant
-                WHERE "resID" = %s
+                SELECT
+                    r."resID",
+                    r."resName",
+                    r."catID",
+                    r."phone",
+                    r."email",
+                    r."lng",
+                    r."lat",
+                    r."openTime",
+                    r."closeTime",
+                    r."description",
+                    r."status",
+
+                    -- profile зураг
+                    MAX(
+                        CASE
+                            WHEN i."type" = 'profile' THEN i."image_url"
+                        END
+                    ) AS profile_image,
+
+                    -- logo зураг
+                    MAX(
+                        CASE
+                            WHEN i."type" = 'logo' THEN i."image_url"
+                        END
+                    ) AS logo_image
+
+                FROM tbl_restaurant r
+                LEFT JOIN tbl_restaurant_images i
+                    ON i."resID" = r."resID"
+
+                WHERE r."resID" = %s
+                GROUP BY r."resID"
             """, [res_id])
+
             res = c.fetchone()
 
         if not res:
-            return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Restaurant not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        keys = ["resID", "resName", "catID", "phone", "email", "lng", "lat",
-                "openTime", "closeTime", "description", "image", "status"]
+        keys = [
+            "resID",
+            "resName",
+            "catID",
+            "phone",
+            "email",
+            "lng",
+            "lat",
+            "openTime",
+            "closeTime",
+            "description",
+            "status",
+            "profile_image",
+            "logo_image",
+        ]
+
         res_data = dict(zip(keys, res))
 
-        return Response({"restaurant": res_data}, status=200) 
+        return Response({"restaurant": res_data}, status=status.HTTP_200_OK)
+
 
 class RestaurantListView(APIView):
     permission_classes = [AllowAny]
@@ -202,6 +253,7 @@ class RestaurantUpdateView(APIView):
                 """, [d['resName'], d['catID'], d.get('phone',''), d.get('password',''), d.get('lng',''), d.get('lat',''), d.get('openTime',''), d.get('closeTime',''), d.get('description',''), d.get('image',''), d.get('email',''), resID])
             return Response({"message": "Restaurant updated"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class RestaurantDeleteView(APIView):
     permission_classes = [AllowAny] # эсвэл isAuthenticated

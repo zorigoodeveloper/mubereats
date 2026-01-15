@@ -66,7 +66,7 @@ urlpatterns = [
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
 
     path('<int:resID>/image/', RestaurantMultipleImageUploadView.as_view(), name='restaurant-image-upload'),
-    path('<int:resID>/update/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-update'),
+    path('<int:resID>/update/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-up'),
     path('update/food/<int:foodID>/image/', FoodImageUpdateView.as_view(), name='food-image-upload'),
     path('upload/image/', ImageUploadView.as_view(), name='generic-image-upload'),
     path('<int:resID>/image/info/', RestaurantImageView.as_view(), name='restaurant-image-info'),
