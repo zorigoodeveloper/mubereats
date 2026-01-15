@@ -9,5 +9,5 @@ bcrypt==4.1.1
 gunicorn
 dj-database-url==2.1.0
 whitenoise
-cloudinary==1.32.0
-cloudinary-storage==0.3.0
+cloudinary==none
+cloudinary-storage==none
