@@ -369,7 +369,6 @@ class FoodCategoryDeleteView(APIView):
 
 
 # ------------------- FOOD -------------------
-# ------------------- FOOD -------------------
 class FoodListView(APIView):
     permission_classes = [AllowAny]
 
@@ -472,19 +471,34 @@ class DrinkListView(APIView):
         return Response(data)
 
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+
+            drink_name = d['drink_name']
+            price = float(d['price'])  # ensure numeric
+            description = d.get('description') or ''
+            pic = d.get('pic') or ''   # Google Drive URL
+
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
-                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING "drink_id"
+                """, [drink_name, price, description, pic])
+
                 drink_id = c.fetchone()[0]
-            return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
+
+            return Response({
+                "message": "Drink added",
+                "drink_id": drink_id
+            }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class DrinkUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
