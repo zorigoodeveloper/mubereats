@@ -21,19 +21,33 @@ from .views import (
     RestaurantStatusCheckView,
     RestaurantSigninView,
     RestaurantDetailView,
-    # FoodCategory
-    FoodCategoryListView, FoodCategoryCreateView, FoodCategoryUpdateView, FoodCategoryDeleteView,
-    # Food
-    FoodListView, FoodCreateView, FoodUpdateView, FoodDeleteView,
-    # Drink
-    DrinkListView, DrinkCreateView, DrinkUpdateView, DrinkDeleteView,
-    # Package
-    PackageListView, PackageCreateView, PackageUpdateView, PackageDeleteView,
-    # PackageFood
-    PackageFoodListView, PackageFoodCreateView, PackageFoodUpdateView, PackageFoodDeleteView,
-    # PackageDrink
-    PackageDrinkListView, PackageDrinkCreateView, PackageDrinkUpdateView, PackageDrinkDeleteView,
-    # Image Upload
+    RestaurantPackageListView,
+    RestaurantPackageFoodListView,
+    RestaurantPackageDrinkListView,
+    FoodCategoryListView, 
+    FoodCategoryCreateView,
+    FoodCategoryUpdateView, 
+    FoodCategoryDeleteView,
+    FoodListView, 
+    FoodCreateView, 
+    FoodUpdateView, 
+    FoodDeleteView,
+    DrinkListView, 
+    DrinkCreateView, 
+    DrinkUpdateView, 
+    DrinkDeleteView,
+    PackageListView, 
+    PackageCreateView, 
+    PackageUpdateView, 
+    PackageDeleteView,
+    PackageFoodListView, 
+    PackageFoodCreateView, 
+    PackageFoodUpdateView, 
+    PackageFoodDeleteView,
+    PackageDrinkListView, 
+    PackageDrinkCreateView, 
+    PackageDrinkUpdateView, 
+    PackageDrinkDeleteView,
     FoodImageUploadView,
 )
 from .tViews import RestaurantOrderListView
@@ -77,18 +91,22 @@ urlpatterns = [
     path('package/add/', PackageCreateView.as_view()),
     path('package/update/<int:package_id>/', PackageUpdateView.as_view()),
     path('package/delete/<int:package_id>/', PackageDeleteView.as_view()),
+    path('<int:resID>/package/', RestaurantPackageListView.as_view()),
+    
 
     # ------------------- PACKAGE FOOD -------------------
     path('package-food/', PackageFoodListView.as_view()),
     path('package-food/add/', PackageFoodCreateView.as_view()),
     path('package-food/update/<int:id>/', PackageFoodUpdateView.as_view()),
     path('package-food/delete/<int:id>/', PackageFoodDeleteView.as_view()),
+    path('<int:resID>/package-food/', RestaurantPackageFoodListView.as_view()),
 
     # ------------------- PACKAGE DRINK -------------------
     path('package-drink/', PackageDrinkListView.as_view()),
     path('package-drink/add/', PackageDrinkCreateView.as_view()),
     path('package-drink/update/<int:id>/', PackageDrinkUpdateView.as_view()),
     path('package-drink/delete/<int:id>/', PackageDrinkDeleteView.as_view()),
+    path('<int:resID>/package-drink/', RestaurantPackageDrinkListView.as_view()),
 
     # category
     path('restype/add/', RestaurantCategoryCreateView.as_view(), name='restype-create'),

@@ -600,6 +600,77 @@ class PackageDeleteView(APIView):
             c.execute('DELETE FROM tbl_package WHERE "package_id"=%s', [package_id])
         return Response({"message": "Package deleted"})
 
+class RestaurantPackageListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):
+        with connection.cursor() as c:
+            # 1️⃣ Тухайн рестораны package-ууд
+            c.execute(
+                '''
+                SELECT "package_id", "restaurant_id", "package_name", "price"
+                FROM tbl_package
+                WHERE "restaurant_id" = %s
+                ''',
+                [resID]
+            )
+            packages = c.fetchall()
+
+            result = []
+
+            for p in packages:
+                package_id = p[0]
+
+                # 2️⃣ Package-д хамаарах drinks
+                c.execute(
+                    '''
+                    SELECT "id", "drink_id", "quantity"
+                    FROM tbl_package_drinks
+                    WHERE "package_id" = %s
+                    ''',
+                    [package_id]
+                )
+                drinks = c.fetchall()
+
+                drink_list = [
+                    {
+                        "id": d[0],
+                        "drink_id": d[1],
+                        "quantity": d[2]
+                    }
+                    for d in drinks
+                ]
+
+                # 3️⃣ Package-д хамаарах foods
+                c.execute(
+                    '''
+                    SELECT "id", "food_id", "quantity"
+                    FROM tbl_package_food
+                    WHERE "package_id" = %s
+                    ''',
+                    [package_id]
+                )
+                foods = c.fetchall()
+
+                food_list = [
+                    {
+                        "id": f[0],
+                        "food_id": f[1],
+                        "quantity": f[2]
+                    }
+                    for f in foods
+                ]
+
+                result.append({
+                    "package_id": p[0],
+                    "restaurant_id": p[1],
+                    "package_name": p[2],
+                    "price": p[3],
+                    "drinks": drink_list,
+                    "foods": food_list
+                })
+
+        return Response(result)
 
 # ------------------- PACKAGE FOOD -------------------
 class PackageFoodListView(APIView):
@@ -646,6 +717,39 @@ class PackageFoodDeleteView(APIView):
             c.execute('DELETE FROM tbl_package_food WHERE "id"=%s', [id])
         return Response({"message": "Package Food deleted"})
 
+class RestaurantPackageFoodListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):
+        with connection.cursor() as c:
+            c.execute(
+                '''
+                SELECT 
+                    pf."id",
+                    pf."package_id",
+                    pf."food_id",
+                    pf."quantity"
+                FROM tbl_package_food pf
+                JOIN tbl_package p 
+                    ON p."package_id" = pf."package_id"
+                WHERE p."restaurant_id" = %s
+                ''',
+                [resID]
+            )
+            rows = c.fetchall()
+
+        data = [
+            {
+                "id": r[0],
+                "package_id": r[1],
+                "food_id": r[2],
+                "quantity": r[3]
+            }
+            for r in rows
+        ]
+
+        return Response(data)
+
 
 # ------------------- PACKAGE DRINK -------------------
 class PackageDrinkListView(APIView):    
@@ -691,6 +795,39 @@ class PackageDrinkDeleteView(APIView):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_package_drinks WHERE "id"=%s', [id])
         return Response({"message": "Package Drink deleted"})
+
+class RestaurantPackageDrinkListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):   # 👈 resID
+        with connection.cursor() as c:
+            c.execute(
+                '''
+                SELECT 
+                    pd."id",
+                    pd."package_id",
+                    pd."drink_id",
+                    pd."quantity"
+                FROM tbl_package_drinks pd
+                JOIN tbl_package p
+                    ON p."package_id" = pd."package_id"
+                WHERE p."restaurant_id" = %s
+                ''',
+                [resID]   # 👈 resID
+            )
+            rows = c.fetchall()
+
+        data = [
+            {
+                "id": r[0],
+                "package_id": r[1],
+                "drink_id": r[2],
+                "quantity": r[3]
+            }
+            for r in rows
+        ]
+
+        return Response(data)
 
 # # ===== Branch CRUD =====
 # class BranchCreateView(APIView):
