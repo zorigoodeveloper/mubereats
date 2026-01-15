@@ -7,7 +7,7 @@ from .views import (
     AdminSignInView, AdminApproveRestaurantView, AdminApproveDriverView, 
     AdminRestaurantListView, AdminDriverListView,AdminPendingDriverListView, 
     AdminPendingRestaurantListView, CouponListView, CouponDetailView, CouponCreateView,
-    CouponUpdateView, CouponDeleteView
+    CouponUpdateView, CouponDeleteView, AdminStatisticsView
 )
 
 urlpatterns = [
@@ -31,5 +31,6 @@ urlpatterns = [
     path('admin/coupons/create/', CouponCreateView.as_view(), name='coupon-create'),
     path('admin/coupons/<int:coupon_id>/update/', CouponUpdateView.as_view(), name='coupon-update'),
     path('admin/coupons/<int:coupon_id>/none_active/', CouponDeleteView.as_view(), name='coupon-delete'),
+    path('admin/statistics/', AdminStatisticsView.as_view(), name='admin-statistics'),
 
 ]

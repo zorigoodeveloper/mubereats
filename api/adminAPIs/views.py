@@ -7,7 +7,7 @@ from rest_framework import status
 from ..database import execute_query, execute_update
 from .auth import JWTAuthentication, verify_password, create_access_token
 from .permissions import IsAdminUserCustom
-
+from datetime import datetime, timedelta
 
 # Бүх админ хэрэглэгч авах
 class AdminUserListView(APIView):
@@ -299,3 +299,84 @@ class CouponDeleteView(APIView):
         if rowcount == 0:
             return Response({'error': 'Coupon not found'}, status=404)
         return Response({'message': 'Coupon deactivated'})
+    
+
+# statistic harah 
+class AdminStatisticsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def get(self, request):
+        today = datetime.utcnow().date()
+        last_week = today - timedelta(days=7)
+        last_month = today - timedelta(days=30)
+        last_half_year = today - timedelta(days=182)
+        last_year = today - timedelta(days=365)
+
+        stats = {}
+
+        # Restaurant бүртгэл
+        stats['restaurants'] = {
+            'week': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
+            )['count'],
+            'month': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
+            )['count'],
+            'half_year': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
+            )['count'],
+            'year': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
+            )['count'],
+        }
+
+        # Driver бүртгэл
+        stats['drivers'] = {
+            'week': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
+            )['count'],
+            'month': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
+            )['count'],
+            'half_year': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
+            )['count'],
+            'year': execute_query(
+                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
+            )['count'],
+        }
+
+        # Хэрэглэгч бүртгэл
+        stats['customers'] = {
+            'week': execute_query(
+                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
+            )['count'],
+            'month': execute_query(
+                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
+            )['count'],
+            'half_year': execute_query(
+                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
+            )['count'],
+            'year': execute_query(
+                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
+            )['count'],
+        }
+
+        # Нийт борлуулалт tbl_orderfood дээр
+        stats['sales'] = {
+            'week': execute_query(
+                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
+            )['total'],
+            'month': execute_query(
+                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
+            )['total'],
+            'half_year': execute_query(
+                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
+            )['total'],
+            'year': execute_query(
+                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
+            )['total'],
+        }
+
+        return Response(stats)
