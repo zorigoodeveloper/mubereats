@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
+from datetime import datetime, time
 
 from config import settings
 from .serializers import (
@@ -144,12 +145,8 @@ class RestaurantDetailView(APIView):
         return Response({"restaurant": res_data}, status=200) 
 
 class RestaurantListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    """
-    Бүх ресторануудыг жагсаана.
-    openNow flag ашиглан одоогийн цагт нээлттэй эсэхийг харуулна.
-    status='inactive' бол автоматаар хаалттай гэж үзнэ.
-    """
+    permission_classes = [AllowAny]
+
     def get(self, request):
         with connection.cursor() as c:
             c.execute("""
@@ -163,7 +160,6 @@ class RestaurantListView(APIView):
         for r in rows:
             resID, resName, catID, phone, lng, lat, openTime, closeTime, description, image, email, status_val = r
 
-            # openNow flag
             open_now = is_restaurant_open(openTime, closeTime) and status_val == 'active'
 
             data.append({
@@ -183,6 +179,7 @@ class RestaurantListView(APIView):
             })
 
         return Response(data)
+
 
 class RestaurantUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -258,15 +255,22 @@ class RestaurantStatusSerializer(serializers.Serializer):
 # ----------------------------
 # Function to check if restaurant is open (Ulaanbaatar timezone)
 # ----------------------------
-def is_restaurant_open(open_time: time, close_time: time) -> bool:
-    tz = pytz.timezone('Asia/Ulaanbaatar')
-    now = datetime.now(tz).time()
+def is_restaurant_open(open_time, close_time):
+    """
+    Open/Close цагийг харьцуулж, ресторан нээлттэй эсэхийг буцаана.
+    None орж ирвэл хаалттай гэж үзнэ.
+    Шөнө дамжих цагийг ч зөв шалгана.
+    """
+    if not open_time or not close_time:
+        return False  # Null орж ирвэл хаалттай
 
+    now = datetime.now().time()
+
+    # Хэрвээ шөнө дамжих цаггүй бол энгийн шалгалт
     if open_time < close_time:
-        # Энгийн өдөр дундын цаг (09:00 - 21:00)
         return open_time <= now <= close_time
     else:
-        # Overnight цаг (22:00 - 05:00)
+        # Шөнө дамжих (жишээ: 22:00 - 03:00)
         return now >= open_time or now <= close_time
 
 
@@ -370,13 +374,58 @@ class FoodCategoryDeleteView(APIView):
 
 # ------------------- FOOD -------------------
 class FoodListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    def get(self, request):
+    permission_classes = [AllowAny]
+
+    def get(self, request, res_id):
+        search = request.query_params.get('search')
+        cat_id = request.query_params.get('catID')
+
+        query = """
+            SELECT 
+                f."foodID", f."foodName", f."price",
+                f."description", f."image",
+                f."catID",
+                r."resID", r."resName", r."status"
+            FROM tbl_food f
+            JOIN tbl_restaurant r ON f."resID" = r."resID"
+            WHERE f."resID" = %s
+        """
+        params = [res_id]
+
+        if cat_id:
+            query += ' AND f."catID" = %s'
+            params.append(int(cat_id))
+
+        if search:
+            query += ' AND (f."foodName" ILIKE %s OR f."description" ILIKE %s)'
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        query += ' ORDER BY f."foodName"'
+
         with connection.cursor() as c:
-            c.execute('SELECT "foodID","foodName","resID","catID","price","description","image","portion" FROM tbl_food')
+            c.execute(query, params)
             rows = c.fetchall()
-        data = [{"foodID": r[0], "foodName": r[1], "resID": r[2], "catID": r[3], "price": r[4], "description": r[5], "image": r[6], "portion": r[7]} for r in rows]
-        return Response(data)
+
+        foods = []
+        for row in rows:
+            foods.append({
+                "foodID": row[0],
+                "foodName": row[1],
+                "price": float(row[2]),
+                "description": row[3],
+                "image": row[4],
+                "catID": row[5],
+                "resID": row[6],
+                "resName": row[7],
+                "restaurant_status": row[8],
+                "image_url": request.build_absolute_uri(f"/media/{row[4]}") if row[4] else None
+            })
+
+        return Response({
+            "restaurant_id": res_id,
+            "count": len(foods),
+            "foods": foods
+        })
 
 class FoodCreateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -424,7 +473,7 @@ class DrinkListView(APIView):
             rows = c.fetchall()
         data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3], "pic": r[4]} for r in rows]
         return Response(data)
-
+        
 class DrinkCreateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
@@ -434,11 +483,12 @@ class DrinkCreateView(APIView):
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s,%s,%s) RETURNING "drink_id"
+                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
                 """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
                 drink_id = c.fetchone()[0]
             return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class DrinkUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -705,8 +755,6 @@ class RestaurantCategoryDeleteView(APIView):
 
 
 
-
-
 class ImageUploadView(APIView):
     permission_classes = [AllowAny]
     
@@ -811,7 +859,6 @@ class RestaurantImageUploadView(APIView):
             "image_url": image_url
         }, status=200)
     
-
 
 class RestaurantImageView(APIView):
     """Рестораны зураг авах (GET method нэмэх)"""
