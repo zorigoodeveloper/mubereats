@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     # FoodImageUploadView,
+    FoodImageUpdateView,
     ImageUploadView,
     RestaurantCreateView,
     RestaurantImageUploadView,
@@ -48,7 +49,6 @@ from .views import (
     PackageDrinkCreateView, 
     PackageDrinkUpdateView, 
     PackageDrinkDeleteView,
-    FoodImageUploadView,
 )
 from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
@@ -64,7 +64,7 @@ urlpatterns = [
     path('update/<int:resID>/', RestaurantUpdateView.as_view()),
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
     path('<int:resID>/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-upload'),
-    path('upload/food/<int:foodID>/image/', FoodImageUploadView.as_view(), name='food-image-upload'),
+    path('update/food/<int:foodID>/image/', FoodImageUpdateView.as_view(), name='food-image-upload'),
     path('upload/image/', ImageUploadView.as_view(), name='generic-image-upload'),
     path('<int:resID>/image/info/', RestaurantImageView.as_view(), name='restaurant-image-info'),
 
@@ -81,7 +81,7 @@ urlpatterns = [
     path('food-category/delete/<int:catID>/', FoodCategoryDeleteView.as_view()),
     
     # ------------------- DRINK -------------------
-    path('drink/', DrinkListView.as_view()),
+    path('<int:res_id>/drink/', DrinkListView.as_view()),
     path('drink/add/', DrinkCreateView.as_view()),
     path('drink/update/<int:drink_id>/', DrinkUpdateView.as_view()),
     path('drink/delete/<int:drink_id>/', DrinkDeleteView.as_view()),
