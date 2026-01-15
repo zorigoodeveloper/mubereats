@@ -524,13 +524,53 @@ class FoodDeleteView(APIView):
 
 # ------------------- DRINK -------------------
 class DrinkListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    def get(self, request):
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгож болно
+
+    def get(self, request, res_id):
+        search = request.query_params.get('search')
+
+        # SQL query
+        query = """
+            SELECT 
+                d."drink_id", d."drink_name", d."price", d."description", d."pic",
+                r."resID", r."resName", r."status"
+            FROM tbl_drinks d
+            JOIN tbl_restaurant r ON d."resID" = r."resID"
+            WHERE r."resID" = %s
+        """
+        params = [res_id]
+
+        # Search filter
+        if search:
+            query += ' AND (d."drink_name" ILIKE %s OR d."description" ILIKE %s)'
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        query += ' ORDER BY d."drink_name"'
+
         with connection.cursor() as c:
-            c.execute('SELECT "drink_id","drink_name","price","description","pic" FROM tbl_drinks')
+            c.execute(query, params)
             rows = c.fetchall()
-        data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3], "pic": r[4]} for r in rows]
-        return Response(data)
+
+        drinks = []
+        for row in rows:
+            drinks.append({
+                "drink_id": row[0],
+                "drink_name": row[1],
+                "price": float(row[2]),
+                "description": row[3],
+                "pic": row[4],
+                "resID": row[5],
+                "resName": row[6],
+                "restaurant_status": row[7],
+                "image_url": row[4]  # Cloudinary URL
+            })
+
+        return Response({
+            "restaurant_id": res_id,
+            "count": len(drinks),
+            "drinks": drinks
+        })
+
 
 class DrinkCreateView(APIView):
     permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгох боломжтой

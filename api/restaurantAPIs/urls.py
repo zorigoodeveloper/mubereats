@@ -75,7 +75,7 @@ urlpatterns = [
     path('food-category/delete/<int:catID>/', FoodCategoryDeleteView.as_view()),
     
     # ------------------- DRINK -------------------
-    path('drink/', DrinkListView.as_view()),
+    path('<int:res_id>/drink/', DrinkListView.as_view()),
     path('drink/add/', DrinkCreateView.as_view()),
     path('drink/update/<int:drink_id>/', DrinkUpdateView.as_view()),
     path('drink/delete/<int:drink_id>/', DrinkDeleteView.as_view()),
