@@ -61,8 +61,14 @@ class CustomerSignUpSerializer(serializers.Serializer):
 
 
 class SignInSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=True)
-    password = serializers.CharField(write_only=True, required=True)
+    phone_number = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(required=True, write_only=True)
+
+    def validate(self, data):
+        if not data.get('phone_number') and not data.get('email'):
+            raise serializers.ValidationError("Имэйл эсвэл утасны дугаар заавал оруулна уу")
+        return data
 
 class OrderItemSerializer(serializers.Serializer):
     foodID = serializers.IntegerField()

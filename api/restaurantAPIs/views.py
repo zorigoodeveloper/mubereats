@@ -1,3 +1,4 @@
+import cloudinary
 from django.db import connection
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny,IsAuthenticated 
@@ -5,6 +6,16 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
+from datetime import datetime, time
+from cloudinary_storage.storage import MediaCloudinaryStorage
+import os
+from django.core.files.storage import FileSystemStorage
+import uuid
+import cloudinary.uploader
+import time
+
+
+from config import settings
 from .serializers import (
     RestaurantSerializer,
     FoodSerializer, 
@@ -35,7 +46,11 @@ from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 
 
-
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_STORAGE['CLOUD_NAME'],
+    api_key=settings.CLOUDINARY_STORAGE['API_KEY'],
+    api_secret=settings.CLOUDINARY_STORAGE['API_SECRET']
+)
 
 
 # ===== Restaurant CRUD =====
@@ -137,12 +152,8 @@ class RestaurantDetailView(APIView):
         return Response({"restaurant": res_data}, status=200) 
 
 class RestaurantListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    """
-    Бүх ресторануудыг жагсаана.
-    openNow flag ашиглан одоогийн цагт нээлттэй эсэхийг харуулна.
-    status='inactive' бол автоматаар хаалттай гэж үзнэ.
-    """
+    permission_classes = [AllowAny]
+
     def get(self, request):
         with connection.cursor() as c:
             c.execute("""
@@ -156,7 +167,6 @@ class RestaurantListView(APIView):
         for r in rows:
             resID, resName, catID, phone, lng, lat, openTime, closeTime, description, image, email, status_val = r
 
-            # openNow flag
             open_now = is_restaurant_open(openTime, closeTime) and status_val == 'active'
 
             data.append({
@@ -177,6 +187,7 @@ class RestaurantListView(APIView):
 
         return Response(data)
 
+
 class RestaurantUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def put(self, request, resID):
@@ -193,11 +204,38 @@ class RestaurantUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RestaurantDeleteView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny] # эсвэл isAuthenticated
+
     def delete(self, request, resID):
         with connection.cursor() as c:
-            c.execute('DELETE FROM tbl_restaurant WHERE "resID"=%s', [resID])
+            # 1️⃣ Холбоотой review-уудыг устгах
+            c.execute('DELETE FROM tbl_review_rating WHERE "resID" = %s', [resID])
+
+            # 2️⃣ Холбоотой food-уудыг устгах
+            c.execute('DELETE FROM tbl_food WHERE "resID" = %s', [resID])
+
+            # 3️⃣ Холбоотой drink-уудыг устгах
+            c.execute('DELETE FROM tbl_drinks WHERE "res_id" = %s', [resID])
+
+            # 4️⃣ Холбоотой package_food-уудыг устгах
+            c.execute("""
+                DELETE FROM tbl_package_food 
+                WHERE package_id IN (SELECT package_id FROM tbl_package WHERE restaurant_id = %s)
+            """, [resID])
+
+            # 5️⃣ Холбоотой package_drinks-уудыг устгах
+            c.execute("""
+                DELETE FROM tbl_package_drinks 
+                WHERE package_id IN (SELECT package_id FROM tbl_package WHERE restaurant_id = %s)
+            """, [resID])
+
+            # 6️⃣ Холбоотой package-уудыг устгах
+            c.execute('DELETE FROM tbl_package WHERE restaurant_id = %s', [resID])
+
+            # 7️⃣ Рестораныг устгах
+            c.execute('DELETE FROM tbl_restaurant WHERE "resID" = %s', [resID])
         return Response({"message": "Restaurant deleted"}, status=status.HTTP_200_OK)
+
 
 
 # ----------------------------
@@ -251,15 +289,22 @@ class RestaurantStatusSerializer(serializers.Serializer):
 # ----------------------------
 # Function to check if restaurant is open (Ulaanbaatar timezone)
 # ----------------------------
-def is_restaurant_open(open_time: time, close_time: time) -> bool:
-    tz = pytz.timezone('Asia/Ulaanbaatar')
-    now = datetime.now(tz).time()
+def is_restaurant_open(open_time, close_time):
+    """
+    Open/Close цагийг харьцуулж, ресторан нээлттэй эсэхийг буцаана.
+    None орж ирвэл хаалттай гэж үзнэ.
+    Шөнө дамжих цагийг ч зөв шалгана.
+    """
+    if not open_time or not close_time:
+        return False  # Null орж ирвэл хаалттай
 
+    now = datetime.now().time()
+
+    # Хэрвээ шөнө дамжих цаггүй бол энгийн шалгалт
     if open_time < close_time:
-        # Энгийн өдөр дундын цаг (09:00 - 21:00)
         return open_time <= now <= close_time
     else:
-        # Overnight цаг (22:00 - 05:00)
+        # Шөнө дамжих (жишээ: 22:00 - 03:00)
         return now >= open_time or now <= close_time
 
 
@@ -363,27 +408,96 @@ class FoodCategoryDeleteView(APIView):
 
 # ------------------- FOOD -------------------
 class FoodListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    def get(self, request):
+    permission_classes = [AllowAny]
+
+    def get(self, request, res_id):
+        search = request.query_params.get('search')
+        cat_id = request.query_params.get('catID')
+
+        query = """
+            SELECT 
+                f."foodID", f."foodName", f."price",
+                f."description", f."image",
+                f."catID",
+                r."resID", r."resName", r."status"
+            FROM tbl_food f
+            JOIN tbl_restaurant r ON f."resID" = r."resID"
+            WHERE f."resID" = %s
+        """
+        params = [res_id]
+
+        if cat_id:
+            query += ' AND f."catID" = %s'
+            params.append(int(cat_id))
+
+        if search:
+            query += ' AND (f."foodName" ILIKE %s OR f."description" ILIKE %s)'
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        query += ' ORDER BY f."foodName"'
+
         with connection.cursor() as c:
-            c.execute('SELECT "foodID","foodName","resID","catID","price","description","image","portion" FROM tbl_food')
+            c.execute(query, params)
             rows = c.fetchall()
-        data = [{"foodID": r[0], "foodName": r[1], "resID": r[2], "catID": r[3], "price": r[4], "description": r[5], "image": r[6], "portion": r[7]} for r in rows]
-        return Response(data)
+
+        foods = []
+        for row in rows:
+            foods.append({
+                "foodID": row[0],
+                "foodName": row[1],
+                "price": float(row[2]),
+                "description": row[3],
+                "image": row[4],
+                "catID": row[5],
+                "resID": row[6],
+                "resName": row[7],
+                "restaurant_status": row[8],
+                "image_url": request.build_absolute_uri(f"/media/{row[4]}") if row[4] else None
+            })
+
+        return Response({
+            "restaurant_id": res_id,
+            "count": len(foods),
+            "foods": foods
+        })
 
 class FoodCreateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгож болно
+
     def post(self, request):
         serializer = FoodSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+            image_file = request.FILES.get("image")  # Frontend-с ирж байгаа файл
+
+            image_url = ''
+            if image_file:
+                # Cloudinary-д upload хийх
+                upload = cloudinary.uploader.upload(
+                image_file,
+                folder=f"foods/",
+                public_id = f"{d['foodName']}",
+                overwrite=True
+                )
+                image_url = upload["secure_url"]
+
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_food ("foodName","resID","catID","price","description","image","portion")
                     VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING "foodID"
-                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image',''), d.get('portion','')])
+                """, [
+                    d['foodName'],
+                    d['resID'],
+                    d['catID'],
+                    d['price'],
+                    d.get('description', ''),
+                    image_url,  # Cloudinary URL-ийг энд хадгална
+                    d.get('portion', '')
+                ])
                 foodID = c.fetchone()[0]
-            return Response({"message": "Food added", "foodID": foodID}, status=status.HTTP_201_CREATED)
+
+            return Response({"message": "Food added", "foodID": foodID, "image_url": image_url}, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodUpdateView(APIView):
@@ -419,18 +533,44 @@ class DrinkListView(APIView):
         return Response(data)
 
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгох боломжтой
+
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+
+            drink_name = d['drink_name']
+            price = float(d['price'])  # ensure numeric
+            description = d.get('description', '')
+
+            image_file = request.FILES.get("image")  # Frontend-с ирж байгаа зураг
+            image_url = ''
+            if image_file:
+                # Cloudinary-д upload хийх
+                upload = cloudinary.uploader.upload(
+                    image_file,
+                    folder="drinks/",
+                    public_id=f"{drink_name}",  
+                    overwrite=True
+                )
+                image_url = upload["secure_url"]
+
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
-                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING "drink_id"
+                """, [drink_name, price, description, image_url])
+
                 drink_id = c.fetchone()[0]
-            return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
+
+            return Response({
+                "message": "Drink added",
+                "drink_id": drink_id,
+                "image_url": image_url
+            }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DrinkUpdateView(APIView):
@@ -693,3 +833,265 @@ class RestaurantCategoryDeleteView(APIView):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_res_type WHERE "ID"=%s', [id])
         return Response({"message": "Category deleted"}, status=status.HTTP_200_OK)
+    
+
+class ImageUploadView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        # 1. Зураг файл шалгах
+        if 'image' not in request.FILES:
+            return Response(
+                {"error": "No image file provided"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        image_file = request.FILES['image']
+        
+        # 2. Файлын төрөл шалгах
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return Response(
+                {"error": "Invalid image type. Allowed: JPEG, PNG, GIF, WebP"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 3. Файлын хэмжээ шалгах (2MB хүртэл)
+        max_size = 2 * 1024 * 1024  # 2MB
+        if image_file.size > max_size:
+            return Response(
+                {"error": "Image size too large. Max 2MB"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 4. Хадгалах зам бэлдэх
+        upload_dir = 'restaurant_images'
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+        
+        # 5. Файлын нэр өвөрмөц болгох
+        import uuid
+        file_name = f"{uuid.uuid4()}_{image_file.name}"
+        file_path = os.path.join(upload_dir, file_name)
+        
+        # 6. Файл хадгалах
+        fs = FileSystemStorage()
+        filename = fs.save(file_path, image_file)
+        
+        # 7. URL үүсгэх
+        file_url = fs.url(filename)
+        
+        return Response({
+            "message": "Image uploaded successfully",
+            "filename": filename,
+            "url": file_url,
+            "size": image_file.size,
+            "content_type": image_file.content_type
+        }, status=status.HTTP_201_CREATED)
+
+
+
+class RestaurantMultipleImageUploadView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, resID):
+        files = request.FILES.getlist("images")
+        if not files:
+            return Response({"error": "No image files"}, status=400)
+
+        storage = MediaCloudinaryStorage()
+        uploaded = []
+
+        # request-аас type-г авна
+        file_type = request.data.get('type', 'profile')  # default нь profile
+        if file_type not in ['profile', 'logo']:
+            file_type = 'profile'
+
+        import uuid  # uuid-г import хий
+
+        for idx, image_file in enumerate(files):
+            # validation
+            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+            if image_file.content_type not in allowed_types:
+                continue
+            if image_file.size > 5 * 1024 * 1024:
+                continue
+
+            file_path = f"restaurants/{resID}/{uuid.uuid4()}"
+            saved_name = storage.save(file_path, image_file)
+            image_url = storage.url(saved_name)
+
+            # DB insert
+            with connection.cursor() as c:
+                c.execute("""
+                    INSERT INTO tbl_restaurant_images ("resID", "image_url", "type")
+                    VALUES (%s, %s, %s)
+                    RETURNING "imageID"
+                """, [resID, image_url, file_type])
+                image_id = c.fetchone()[0]
+
+            uploaded.append({"imageID": image_id, "image_url": image_url, "type": file_type})
+
+        if not uploaded:
+            return Response({"error": "No valid images uploaded"}, status=400)
+
+        return Response({
+            "message": "Images uploaded",
+            "uploaded": uploaded
+        }, status=201)
+
+
+
+class RestaurantImageUploadView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, resID):
+        if 'image' not in request.FILES:
+            return Response({"error": "No image file"}, status=400)
+
+        image_file = request.FILES['image']
+
+        # validation
+        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return Response({"error": "Invalid image type"}, status=400)
+
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({"error": "Max 5MB"}, status=400)
+
+        # 🔥 使用 Cloudinary Storage 上传
+        storage = MediaCloudinaryStorage()
+        
+        # 构建文件路径
+        file_name = f"restaurant_{resID}"
+        file_path = f"restaurants/{resID}/{file_name}"
+        
+        # 保存文件
+        file_name = storage.save(file_path, image_file)
+        image_url = storage.url(file_name)
+
+        # DB update (URL хадгална)
+        with connection.cursor() as c:
+            c.execute("""
+                UPDATE tbl_restaurant
+                SET "image" = %s
+                WHERE "resID" = %s
+                RETURNING "resID", "resName"
+            """, [image_url, resID])
+
+            result = c.fetchone()
+            if not result:
+                return Response({"error": "Restaurant not found"}, status=404)
+
+        return Response({
+            "message": "Restaurant image updated",
+            "resID": result[0],
+            "resName": result[1],
+            "image_url": image_url
+        }, status=200)
+
+
+
+class RestaurantImageView(APIView):
+    """Рестораны зураг авах (GET method нэмэх)"""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, resID):
+        if 'image' not in request.FILES:
+            return Response({"error": "No image file"}, status=400)
+
+        image_file = request.FILES['image']
+
+        # validation
+        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return Response({"error": "Invalid image type"}, status=400)
+
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({"error": "Max 5MB"}, status=400)
+
+        # 🔥 使用 Cloudinary Storage 上传
+        storage = MediaCloudinaryStorage()
+        
+        # 构建文件路径
+        file_name = f"logo_{resID}"
+        file_path = f"restaurants/logo/{resID}/{file_name}"
+        
+        # 保存文件
+        file_name = storage.save(file_path, image_file)
+        image_url = storage.url(file_name)
+
+        # DB update (URL хадгална)
+        with connection.cursor() as c:
+            c.execute("""
+                UPDATE tbl_restaurant
+                SET "image" = %s
+                WHERE "resID" = %s
+                RETURNING "resID", "resName"
+            """, [image_url, resID])
+
+            result = c.fetchone()
+            if not result:
+                return Response({"error": "Restaurant not found"}, status=404)
+
+        return Response({
+            "message": "Restaurant image updated",
+            "resID": result[0],
+            "resName": result[1],
+            "image_url": image_url
+        }, status=200)
+
+
+
+class RestaurantImagesView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):
+        with connection.cursor() as c:
+            c.execute("""
+                SELECT "imageID", "image_url", "type", "created_at"
+                FROM tbl_restaurant_images
+                WHERE "resID" = %s
+            """, [resID])
+            rows = c.fetchall()
+
+        images = [{"imageID": r[0], "image_url": r[1], "type": r[2], "created_at": r[3]} for r in rows]
+
+        return Response({"resID": resID, "images": images})
+
+class FoodImageUpdateView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, foodID):
+        image_file = request.FILES.get("image")
+        if not image_file:
+            return Response({"error": "No image"}, status=400)
+
+        upload = cloudinary.uploader.upload(
+            image_file,
+            folder=f"foods/{foodID}",
+            public_id=f"food_{foodID}",
+            overwrite=True
+        )
+
+        image_url = upload["secure_url"]
+
+        with connection.cursor() as c:
+            c.execute("""
+                UPDATE tbl_food
+                SET "image" = %s
+                WHERE "foodID" = %s
+                RETURNING "foodID", "foodName", "resID"
+            """, [image_url, foodID])
+
+            result = c.fetchone()
+            if not result:
+                return Response({"error": "Food not found"}, status=404)
+
+        return Response({
+            "message": "Food image updated",
+            "image_url": image_url
+        }, status=200)
+    
+

@@ -13,6 +13,7 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 INSTALLED_APPS = [
+    
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
     'django.contrib.auth', 
@@ -21,7 +22,21 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'api',
+    'cloudinary',
+    'cloudinary_storage',
 ]
+import os
+
+# Media файлуудын тохиргоо
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Хэрэгтэй бол дараахыг нэмнэ
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024  # 15MB
+
+# Зургийн формат
+ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -30,6 +45,29 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME', 'dvfclibsn'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY', '219282487814685'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET', 'Cy-y1hNCUTsAoKOCOpEl__hGwp8'),
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': 'dvfclibsn',
+    'API_KEY': '219282487814685',
+    'API_SECRET': 'Cy-y1hNCUTsAoKOCOpEl__hGwp8',
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
 
 ROOT_URLCONF = 'config.urls'
 WSGI_APPLICATION = 'config.wsgi.application'

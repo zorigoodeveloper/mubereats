@@ -1,5 +1,7 @@
 from datetime import datetime
-import random, time
+import random, time,cloudinary.uploader
+from rest_framework.parsers import MultiPartParser, FormParser
+import cloudinary.uploader
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -7,6 +9,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..database import execute_query, execute_insert, execute_update
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
 from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer
+from urllib.parse import urlparse, unquote
 
 # Dummy data
 USERS = [
@@ -223,16 +226,27 @@ class SignInView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         data = serializer.validated_data
+        email = data.get('email')
+        phone_number = data.get('phone_number')
+        password = data['password']
+
+        # Имэйл эсвэл phone_number-оор хайх
+        if email:
+            user = execute_query(
+                "SELECT * FROM users WHERE email = %s",
+                (email,),
+                fetch_one=True
+            )
+        else:
+            user = execute_query(
+                "SELECT * FROM users WHERE phone_number = %s",
+                (phone_number,),
+                fetch_one=True
+            )
         
-        user = execute_query(
-            "SELECT * FROM users WHERE email = %s",
-            (data['email'],),
-            fetch_one=True
-        )
-        
-        if not user or not verify_password(data['password'], user['password_hash']):
+        if not user or not verify_password(password, user['password_hash']):
             return Response(
-                {'error': 'Имэйл эсвэл нууц үг буруу байна'},
+                {'error': 'Имэйл/утасны дугаар эсвэл нууц үг буруу байна'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
@@ -261,6 +275,7 @@ class SignInView(APIView):
 class ProfileUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser, )  # ← Файл upload хүлээн авах
 
     def get(self, request):
         user = request.user
@@ -302,26 +317,20 @@ class ProfileUpdateView(APIView):
     def patch(self, request):
         user = request.user
         data = request.data
+        files = request.FILES
 
-        if not data:
-            return Response({"detail": "Өөрчлөх талбар оруулаагүй байна"}, status=400)
+        if not data and not files:
+            return Response({"detail": "Өөрчлөх талбар эсвэл файл оруулаагүй байна"}, status=400)
 
         updated = False
-
-        # 1. users хүснэгтэд нийтлэг талбарууд засах
         user_updates = {}
-        
+
         # Full name
         if 'full_name' in data:
             user_updates['full_name'] = data['full_name'].strip()
             updated = True
-        
-        # Profile image
-        if 'profile_image_url' in data:
-            user_updates['profile_image_url'] = data['profile_image_url'].strip()
-            updated = True
-        
-        # Phone number (давхардсан шалгалттай)
+
+        # Phone number
         if 'phone_number' in data:
             new_phone = data['phone_number'].strip()
             if new_phone == user['phone_number']:
@@ -337,8 +346,8 @@ class ProfileUpdateView(APIView):
             
             user_updates['phone_number'] = new_phone
             updated = True
-        
-        # Email (давхардсан шалгалттай)
+
+        # Email
         if 'email' in data:
             new_email = data['email'].strip().lower()
             if new_email == user['email']:
@@ -355,6 +364,42 @@ class ProfileUpdateView(APIView):
             user_updates['email'] = new_email
             updated = True
 
+        # Profile image - Cloudinary руу upload хийх (файл илгээсэн бол)
+        if 'profile_image' in files:
+            image_file = files['profile_image']
+            try:
+                # Хуучин зургийг Cloudinary-аас устгах
+                if user.get('profile_image_url'):
+                    old_url = user['profile_image_url']
+                    # URL-аас public_id задлах
+                    parsed = urlparse(old_url)
+                    path = unquote(parsed.path.lstrip('/'))
+                    parts = path.split('/')
+                    # version (v123456...) болон folder/file
+                    public_id = '/'.join(parts[1:]).rsplit('.', 1)[0]  # extension хасах
+                    cloudinary.uploader.destroy(public_id)
+
+                # Шинэ зургийг Cloudinary руу upload
+                upload_result = cloudinary.uploader.upload(
+                    image_file,
+                    folder=f"mubereats/profiles/{user['id']}",
+                    resource_type="image",
+                    overwrite=True
+                )
+                new_url = upload_result['secure_url']
+                user_updates['profile_image_url'] = new_url
+                updated = True
+            except Exception as e:
+                return Response({"error": f"Зураг upload амжилтгүй: {str(e)}"}, status=400)
+
+        # JSON-ээр URL илгээсэн бол шууд хадгална (Cloudinary upload хийхгүй)
+        elif 'profile_image_url' in data:
+            new_url = data['profile_image_url'].strip()
+            if new_url and not new_url.startswith(('http://', 'https://')):
+                return Response({"error": "Зөв URL байх ёстой (http эсвэл https-ээр эхэлнэ)"}, status=400)
+            user_updates['profile_image_url'] = new_url if new_url else None
+            updated = True
+
         # users хүснэгтийг шинэчлэх
         if user_updates:
             set_clause = ", ".join([f"{k} = %s" for k in user_updates])
@@ -366,7 +411,7 @@ class ProfileUpdateView(APIView):
                 tuple(values)
             )
 
-        # 2. Customer профайл засах
+        # Customer профайл засах
         if user['user_type'] == 'customer':
             customer_updates = {}
             if 'default_address' in data:
@@ -387,7 +432,7 @@ class ProfileUpdateView(APIView):
                 )
                 updated = True
 
-        # Шинэчлэгдсэн мэдээллийг буцааж харуулах
+        # Шинэчлэгдсэн мэдээллийг буцаах
         updated_user = execute_query(
             "SELECT * FROM users WHERE id = %s",
             (str(user['id']),),
@@ -428,7 +473,7 @@ class ProfileUpdateView(APIView):
             },
             'profile': profile_data or {}
         }, status=status.HTTP_200_OK)
-
+    
 class ProfileView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -482,13 +527,21 @@ class AddToCartView(APIView):
             return Response({"error": "Зөвхөн customer сагс ашиглаж болно"}, status=403)
 
         data = request.data
-        food_id = data.get('foodID')
-        quantity = data.get('quantity', 1)
+        food_id = data.get('foodID')  # эсвэл 'foodId' гэж байвал тааруул
 
-        if not food_id or not isinstance(quantity, int) or quantity < 1:
-            return Response({"error": "foodId болон зөв quantity (1-ээс их тоо) заавал шаардлагатай"}, status=400)
+        # Quantity-г шалгах (байхгүй эсвэл буруу бол 1 гэж тооцно)
+        quantity_raw = data.get('quantity', 1)
+        try:
+            quantity = int(quantity_raw)
+            if quantity < 1:
+                quantity = 1  # 0 эсвэл сөрөг байсан ч 1 болгоно
+        except (ValueError, TypeError):
+            quantity = 1  # string эсвэл буруу утга байсан ч 1 гэж тооцно
 
-        # 1. Хэрэглэгчийн сагс олох
+        if not food_id:
+            return Response({"error": "foodID (эсвэл foodId) заавал оруулна уу"}, status=400)
+
+        # 1. Хэрэглэгчийн сагс олох эсвэл шинээр үүсгэх
         cart = execute_query(
             """
             SELECT "cartID" FROM tbl_cart 
@@ -502,10 +555,8 @@ class AddToCartView(APIView):
         if cart:
             cart_id = cart['cartID']
         else:
-            # Шинэ cartID гар аргаар үүсгэх (bigint-д тохирох тоо)
-            # timestamp-г их тоо болгож (миллисек * 1000 + random)
-    
-            new_cart_id = int(time.time() * 1000000) + random.randint(1, 999999)  # өвөрмөц байлгах
+            # Шинэ cartID (bigint-д тохирох өвөрмөц тоо)
+            new_cart_id = int(time.time() * 1000000) + random.randint(1, 999999)
 
             cart = execute_insert(
                 """
@@ -529,6 +580,7 @@ class AddToCartView(APIView):
         )
 
         if existing:
+            # Байвал тоог нэмэх
             new_quantity = existing['stock'] + quantity
             execute_update(
                 """
@@ -539,6 +591,7 @@ class AddToCartView(APIView):
                 (new_quantity, cart_id, food_id, user.id)
             )
         else:
+            # Шинээр нэмэх (quantity 1 эсвэл илгээсэн утгаараа)
             execute_insert(
                 """
                 INSERT INTO tbl_cart_food ("cartID", "userID", "foodID", stock)
@@ -548,11 +601,12 @@ class AddToCartView(APIView):
             )
 
         return Response({
-            "message": "Сагсанд амжилттай нэмэгдлээ",
+            "message": f"Сагсанд амжилттай нэмэгдлээ ({quantity} ширхэг)",
             "foodId": food_id,
             "quantity_added": quantity,
             "cartID": cart_id
         }, status=201)
+    
 class CartView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
