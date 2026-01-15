@@ -60,7 +60,7 @@ urlpatterns = [
 
     path('update/food/<int:foodID>/image/', FoodImageUpdateView.as_view(), name='food-image-upload'),
     path('upload/image/', ImageUploadView.as_view(), name='generic-image-upload'),
-    
+    path('res/<int:resID>/image/info/', RestaurantImageView.as_view(), name='restaurant-image-info'),
 
     # ------------------- FOOD -------------------
     path('<int:res_id>/foods/', FoodListView.as_view()),

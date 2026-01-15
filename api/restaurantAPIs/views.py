@@ -1,4 +1,4 @@
-import cloudinary, os
+import cloudinary
 from django.db import connection
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny,IsAuthenticated 
@@ -7,10 +7,9 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
 from datetime import datetime, time
+from cloudinary_storage.storage import MediaCloudinaryStorage
+import os
 from django.core.files.storage import FileSystemStorage
-import uuid
-import cloudinary.uploader
-import time
 
 from config import settings
 from .serializers import (
@@ -201,11 +200,38 @@ class RestaurantUpdateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RestaurantDeleteView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny] # эсвэл isAuthenticated
+
     def delete(self, request, resID):
         with connection.cursor() as c:
-            c.execute('DELETE FROM tbl_restaurant WHERE "resID"=%s', [resID])
+            # 1️⃣ Холбоотой review-уудыг устгах
+            c.execute('DELETE FROM tbl_review_rating WHERE "resID" = %s', [resID])
+
+            # 2️⃣ Холбоотой food-уудыг устгах
+            c.execute('DELETE FROM tbl_food WHERE "resID" = %s', [resID])
+
+            # 3️⃣ Холбоотой drink-уудыг устгах
+            c.execute('DELETE FROM tbl_drinks WHERE "res_id" = %s', [resID])
+
+            # 4️⃣ Холбоотой package_food-уудыг устгах
+            c.execute("""
+                DELETE FROM tbl_package_food 
+                WHERE package_id IN (SELECT package_id FROM tbl_package WHERE restaurant_id = %s)
+            """, [resID])
+
+            # 5️⃣ Холбоотой package_drinks-уудыг устгах
+            c.execute("""
+                DELETE FROM tbl_package_drinks 
+                WHERE package_id IN (SELECT package_id FROM tbl_package WHERE restaurant_id = %s)
+            """, [resID])
+
+            # 6️⃣ Холбоотой package-уудыг устгах
+            c.execute('DELETE FROM tbl_package WHERE restaurant_id = %s', [resID])
+
+            # 7️⃣ Рестораныг устгах
+            c.execute('DELETE FROM tbl_restaurant WHERE "resID" = %s', [resID])
         return Response({"message": "Restaurant deleted"}, status=status.HTTP_200_OK)
+
 
 
 # ----------------------------
@@ -501,22 +527,35 @@ class DrinkListView(APIView):
             rows = c.fetchall()
         data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3], "pic": r[4]} for r in rows]
         return Response(data)
-        
+
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+
+            drink_name = d['drink_name']
+            price = float(d['price'])  # ensure numeric
+            description = d.get('description') or ''
+            pic = d.get('pic') or ''   # Google Drive URL
+
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
-                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
-                drink_id = c.fetchone()[0]
-            return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING "drink_id"
+                """, [drink_name, price, description, pic])
 
+                drink_id = c.fetchone()[0]
+
+            return Response({
+                "message": "Drink added",
+                "drink_id": drink_id
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DrinkUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -783,7 +822,6 @@ class RestaurantCategoryDeleteView(APIView):
 
 
 
-
 class ImageUploadView(APIView):
     permission_classes = [AllowAny]
     
@@ -840,57 +878,6 @@ class ImageUploadView(APIView):
 
 from cloudinary_storage.storage import MediaCloudinaryStorage
 
-class RestaurantMultipleImageUploadView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request, resID):
-        files = request.FILES.getlist("images")
-        if not files:
-            return Response({"error": "No image files"}, status=400)
-
-        storage = MediaCloudinaryStorage()
-        uploaded = []
-
-        # request-аас type-г авна
-        file_type = request.data.get('type', 'profile')  # default нь profile
-        if file_type not in ['profile', 'logo']:
-            file_type = 'profile'
-
-        import uuid  # uuid-г import хий
-
-        for idx, image_file in enumerate(files):
-            # validation
-            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
-            if image_file.content_type not in allowed_types:
-                continue
-            if image_file.size > 5 * 1024 * 1024:
-                continue
-
-            file_path = f"restaurants/{resID}/{uuid.uuid4()}"
-            saved_name = storage.save(file_path, image_file)
-            image_url = storage.url(saved_name)
-
-            # DB insert
-            with connection.cursor() as c:
-                c.execute("""
-                    INSERT INTO tbl_restaurant_images ("resID", "image_url", "type")
-                    VALUES (%s, %s, %s)
-                    RETURNING "imageID"
-                """, [resID, image_url, file_type])
-                image_id = c.fetchone()[0]
-
-            uploaded.append({"imageID": image_id, "image_url": image_url, "type": file_type})
-
-        if not uploaded:
-            return Response({"error": "No valid images uploaded"}, status=400)
-
-        return Response({
-            "message": "Images uploaded",
-            "uploaded": uploaded
-        }, status=201)
-
-
-
 class RestaurantImageUploadView(APIView):
     permission_classes = [AllowAny]
 
@@ -938,8 +925,10 @@ class RestaurantImageUploadView(APIView):
             "resName": result[1],
             "image_url": image_url
         }, status=200)
+    
 
-class RestaurantLogoImageUploadView(APIView):
+class RestaurantImageView(APIView):
+    """Рестораны зураг авах (GET method нэмэх)"""
     permission_classes = [AllowAny]
 
     def post(self, request, resID):
