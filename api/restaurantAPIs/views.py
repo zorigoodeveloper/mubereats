@@ -10,6 +10,9 @@ from datetime import datetime, time
 from cloudinary_storage.storage import MediaCloudinaryStorage
 import os
 from django.core.files.storage import FileSystemStorage
+import uuid
+import cloudinary.uploader
+import time
 
 
 from config import settings
@@ -459,18 +462,42 @@ class FoodListView(APIView):
         })
 
 class FoodCreateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгож болно
+
     def post(self, request):
         serializer = FoodSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+            image_file = request.FILES.get("image")  # Frontend-с ирж байгаа файл
+
+            image_url = ''
+            if image_file:
+                # Cloudinary-д upload хийх
+                upload = cloudinary.uploader.upload(
+                image_file,
+                folder=f"foods/",
+                public_id = f"{d['foodName']}",
+                overwrite=True
+                )
+                image_url = upload["secure_url"]
+
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_food ("foodName","resID","catID","price","description","image","portion")
                     VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING "foodID"
-                """, [d['foodName'], d['resID'], d['catID'], d['price'], d.get('description',''), d.get('image',''), d.get('portion','')])
+                """, [
+                    d['foodName'],
+                    d['resID'],
+                    d['catID'],
+                    d['price'],
+                    d.get('description', ''),
+                    image_url,  # Cloudinary URL-ийг энд хадгална
+                    d.get('portion', '')
+                ])
                 foodID = c.fetchone()[0]
-            return Response({"message": "Food added", "foodID": foodID}, status=status.HTTP_201_CREATED)
+
+            return Response({"message": "Food added", "foodID": foodID, "image_url": image_url}, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class FoodUpdateView(APIView):
@@ -497,16 +524,56 @@ class FoodDeleteView(APIView):
 
 # ------------------- DRINK -------------------
 class DrinkListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    def get(self, request):
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгож болно
+
+    def get(self, request, res_id):
+        search = request.query_params.get('search')
+
+        # SQL query
+        query = """
+            SELECT 
+                d."drink_id", d."drink_name", d."price", d."description", d."pic",
+                r."resID", r."resName", r."status"
+            FROM tbl_drinks d
+            JOIN tbl_restaurant r ON d."resID" = r."resID"
+            WHERE r."resID" = %s
+        """
+        params = [res_id]
+
+        # Search filter
+        if search:
+            query += ' AND (d."drink_name" ILIKE %s OR d."description" ILIKE %s)'
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        query += ' ORDER BY d."drink_name"'
+
         with connection.cursor() as c:
-            c.execute('SELECT "drink_id","drink_name","price","description","pic" FROM tbl_drinks')
+            c.execute(query, params)
             rows = c.fetchall()
-        data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3], "pic": r[4]} for r in rows]
-        return Response(data)
+
+        drinks = []
+        for row in rows:
+            drinks.append({
+                "drink_id": row[0],
+                "drink_name": row[1],
+                "price": float(row[2]),
+                "description": row[3],
+                "pic": row[4],
+                "resID": row[5],
+                "resName": row[6],
+                "restaurant_status": row[7],
+                "image_url": row[4]  # Cloudinary URL
+            })
+
+        return Response({
+            "restaurant_id": res_id,
+            "count": len(drinks),
+            "drinks": drinks
+        })
+
 
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгох боломжтой
 
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
@@ -515,21 +582,33 @@ class DrinkCreateView(APIView):
 
             drink_name = d['drink_name']
             price = float(d['price'])  # ensure numeric
-            description = d.get('description') or ''
-            pic = d.get('pic') or ''   # Google Drive URL
+            description = d.get('description', '')
+
+            image_file = request.FILES.get("image")  # Frontend-с ирж байгаа зураг
+            image_url = ''
+            if image_file:
+                # Cloudinary-д upload хийх
+                upload = cloudinary.uploader.upload(
+                    image_file,
+                    folder="drinks/",
+                    public_id=f"{drink_name}",  
+                    overwrite=True
+                )
+                image_url = upload["secure_url"]
 
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
                     VALUES (%s, %s, %s, %s)
                     RETURNING "drink_id"
-                """, [drink_name, price, description, pic])
+                """, [drink_name, price, description, image_url])
 
                 drink_id = c.fetchone()[0]
 
             return Response({
                 "message": "Drink added",
-                "drink_id": drink_id
+                "drink_id": drink_id,
+                "image_url": image_url
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -989,6 +1068,57 @@ class ImageUploadView(APIView):
 
 
 
+class RestaurantMultipleImageUploadView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, resID):
+        files = request.FILES.getlist("images")
+        if not files:
+            return Response({"error": "No image files"}, status=400)
+
+        storage = MediaCloudinaryStorage()
+        uploaded = []
+
+        # request-аас type-г авна
+        file_type = request.data.get('type', 'profile')  # default нь profile
+        if file_type not in ['profile', 'logo']:
+            file_type = 'profile'
+
+        import uuid  # uuid-г import хий
+
+        for idx, image_file in enumerate(files):
+            # validation
+            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+            if image_file.content_type not in allowed_types:
+                continue
+            if image_file.size > 5 * 1024 * 1024:
+                continue
+
+            file_path = f"restaurants/{resID}/{uuid.uuid4()}"
+            saved_name = storage.save(file_path, image_file)
+            image_url = storage.url(saved_name)
+
+            # DB insert
+            with connection.cursor() as c:
+                c.execute("""
+                    INSERT INTO tbl_restaurant_images ("resID", "image_url", "type")
+                    VALUES (%s, %s, %s)
+                    RETURNING "imageID"
+                """, [resID, image_url, file_type])
+                image_id = c.fetchone()[0]
+
+            uploaded.append({"imageID": image_id, "image_url": image_url, "type": file_type})
+
+        if not uploaded:
+            return Response({"error": "No valid images uploaded"}, status=400)
+
+        return Response({
+            "message": "Images uploaded",
+            "uploaded": uploaded
+        }, status=201)
+
+
+
 class RestaurantImageUploadView(APIView):
     permission_classes = [AllowAny]
 
@@ -1036,55 +1166,78 @@ class RestaurantImageUploadView(APIView):
             "resName": result[1],
             "image_url": image_url
         }, status=200)
-    
+
+
+
 class RestaurantImageView(APIView):
     """Рестораны зураг авах (GET method нэмэх)"""
+
     permission_classes = [AllowAny]
-    
-    def get(self, request, resID):
-        """Рестораны зурагны мэдээлэл авах"""
-        try:
-            res_id_int = int(resID)
-        except ValueError:
-            return Response(
-                {"error": "Invalid restaurant ID"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+
+    def post(self, request, resID):
+        if 'image' not in request.FILES:
+            return Response({"error": "No image file"}, status=400)
+
+        image_file = request.FILES['image']
+
+        # validation
+        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return Response({"error": "Invalid image type"}, status=400)
+
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({"error": "Max 5MB"}, status=400)
+
+        # 🔥 使用 Cloudinary Storage 上传
+        storage = MediaCloudinaryStorage()
         
+        # 构建文件路径
+        file_name = f"logo_{resID}"
+        file_path = f"restaurants/logo/{resID}/{file_name}"
+        
+        # 保存文件
+        file_name = storage.save(file_path, image_file)
+        image_url = storage.url(file_name)
+
+        # DB update (URL хадгална)
         with connection.cursor() as c:
             c.execute("""
-                SELECT "resID", "resName", "image"
-                FROM tbl_restaurant
+                UPDATE tbl_restaurant
+                SET "image" = %s
                 WHERE "resID" = %s
-            """, [resID])
-            
+                RETURNING "resID", "resName"
+            """, [image_url, resID])
+
             result = c.fetchone()
             if not result:
-                return Response(
-                    {"error": "Restaurant not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        
-        res_id, res_name, image_path = result
-        
-        response_data = {
-            "resID": res_id,
-            "resName": res_name,
-            "has_image": bool(image_path)
-        }
-        
-        # Хэрэв зураг байвал бүрэн URL нэмэх
-        if image_path:
-            base_url = request.build_absolute_uri('/')
-            response_data["image_url"] = f"{base_url}media/{image_path}"
-            response_data["image_path"] = image_path
-        else:
-            response_data["image_url"] = None
-            response_data["image_path"] = None
-        
-        return Response(response_data, status=status.HTTP_200_OK)    
+                return Response({"error": "Restaurant not found"}, status=404)
 
-class FoodImageUploadView(APIView):
+        return Response({
+            "message": "Restaurant image updated",
+            "resID": result[0],
+            "resName": result[1],
+            "image_url": image_url
+        }, status=200)
+
+
+
+class RestaurantImagesView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):
+        with connection.cursor() as c:
+            c.execute("""
+                SELECT "imageID", "image_url", "type", "created_at"
+                FROM tbl_restaurant_images
+                WHERE "resID" = %s
+            """, [resID])
+            rows = c.fetchall()
+
+        images = [{"imageID": r[0], "image_url": r[1], "type": r[2], "created_at": r[3]} for r in rows]
+
+        return Response({"resID": resID, "images": images})
+
+class FoodImageUpdateView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, foodID):
@@ -1117,3 +1270,5 @@ class FoodImageUploadView(APIView):
             "message": "Food image updated",
             "image_url": image_url
         }, status=200)
+    
+

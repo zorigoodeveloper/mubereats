@@ -22,7 +22,7 @@ class RestaurantSerializer(serializers.Serializer):
     openTime = serializers.TimeField()
     closeTime = serializers.TimeField()
     description = serializers.CharField(required=False, allow_blank=True)
-    image = serializers.CharField(required=False, allow_blank=True)
+    image = serializers.ImageField(required=False)
     status = serializers.ChoiceField(choices=['active', 'inactive'], required=False, default='active')
 
     # ----------------------------
@@ -60,7 +60,7 @@ class FoodSerializer(serializers.Serializer):
     catID = serializers.IntegerField()
     price = serializers.IntegerField()
     description = serializers.CharField(required=False, allow_blank=True)
-    image = serializers.CharField(required=False, allow_blank=True)
+    image = serializers.ImageField(required=False)
     portion = serializers.CharField(max_length=50, required=False)  # Порц
 
 # ------------------- DRINK -------------------

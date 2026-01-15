@@ -1,28 +1,36 @@
+import cloudinary
+from django.db import connection
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
+from api.driverappAPIs.utils.cloudinary_upload import upload_worker_image
+
 from .serializers import WorkerSerializer, SignInSerializer, DeliveryActionSerializer, DeliveryStatusSerializer  
 from ..database import execute_query, execute_insert
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-
-
+from rest_framework.parsers import MultiPartParser, FormParser,JSONParser
 # -------------------------
 # AUTH
 # -------------------------
-
 class SignUpView(APIView):
     permission_classes = [AllowAny]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
-        serializer = WorkerSerializer(data=request.data)
+        # ✅ IMPORTANT: don't pass file field into serializer
+        data_for_serializer = request.data.copy()
+        data_for_serializer.pop("image", None)
+
+        serializer = WorkerSerializer(data=data_for_serializer)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
 
-        existing_worker = execute_query(
+        # duplicate check
+        if execute_query(
             """
             SELECT "workerID"
             FROM "tbl_worker"
@@ -30,9 +38,7 @@ class SignUpView(APIView):
             """,
             (data["email"], data["phone"]),
             fetch_one=True
-        )
-
-        if existing_worker:
+        ):
             return Response(
                 {"error": "Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -40,12 +46,13 @@ class SignUpView(APIView):
 
         password_hash = hash_password(data["password"])
 
+        # 1) create worker first (image = NULL)
         worker = execute_insert(
             """
             INSERT INTO "tbl_worker"
-            ("workerName", "phone", "email", "password_hash", "vehicleType", "vehicleReg", "image")
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg", "image"
+            ("workerName","phone","email","password_hash","vehicleType","vehicleReg","image")
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            RETURNING "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
             """,
             (
                 data["workerName"],
@@ -54,9 +61,32 @@ class SignUpView(APIView):
                 password_hash,
                 data.get("vehicleType"),
                 data.get("vehicleReg"),
-                data.get("image"),  # 👈 шинэ
+                None,
             )
         )
+
+        # 2) image: file upload or URL
+        image_url = None
+
+        # file (form-data)
+        image_file = request.FILES.get("image")
+        if image_file:
+            image_url = upload_worker_image(image_file, worker["workerID"])
+        else:
+            # url string (json)
+            image_url = request.data.get("image")  # optional
+
+        # 3) if we got an image url, update it
+        if image_url:
+            worker = execute_insert(
+                """
+                UPDATE "tbl_worker"
+                SET "image" = %s
+                WHERE "workerID" = %s
+                RETURNING "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
+                """,
+                (image_url, worker["workerID"])
+            )
 
         access_token = create_access_token(
             user_id=str(worker["workerID"]),
@@ -73,26 +103,24 @@ class SignUpView(APIView):
                     "phone": worker["phone"],
                     "vehicleType": worker["vehicleType"],
                     "vehicleReg": worker["vehicleReg"],
-                    "image": worker.get("image"),  # 👈 шинэ
+                    "image": worker.get("image"),
                 },
                 "access_token": access_token,
             },
             status=status.HTTP_201_CREATED
         )
-
-
+    
 class UpdateProfileView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def patch(self, request):
-        worker = request.user
-        worker_id = worker["id"]
+        worker_id = request.user["id"]
 
-        # 1) Get current profile (so we can merge fields safely)
         current = execute_query(
             """
-            SELECT "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg", "image"
+            SELECT "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
             FROM "tbl_worker"
             WHERE "workerID" = %s
             """,
@@ -103,47 +131,50 @@ class UpdateProfileView(APIView):
         if not current:
             return Response({"error": "Профайл олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
 
-        # 2) If phone/email is being changed, check duplicates
-        new_email = request.data.get("email", current["email"])
-        new_phone = request.data.get("phone", current["phone"])
-
-        dup = execute_query(
-            """
-            SELECT "workerID"
-            FROM "tbl_worker"
-            WHERE ("email" = %s OR "phone" = %s) AND "workerID" <> %s
-            """,
-            (new_email, new_phone, worker_id),
-            fetch_one=True
-        )
-        if dup:
-            return Response(
-                {"error": "Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 3) Merge fields (only update what's provided)
+        # merge fields
         workerName = request.data.get("workerName", current["workerName"])
-        phone = new_phone
-        email = new_email
+        new_phone = request.data.get("phone", current["phone"])
+        new_email = request.data.get("email", current["email"])
         vehicleType = request.data.get("vehicleType", current["vehicleType"])
         vehicleReg = request.data.get("vehicleReg", current["vehicleReg"])
-        image = request.data.get("image", current["image"])
 
-        # 4) Update + RETURNING
+        # dup check if changed
+        if new_email != current["email"] or new_phone != current["phone"]:
+            dup = execute_query(
+                """
+                SELECT "workerID"
+                FROM "tbl_worker"
+                WHERE ("email" = %s OR "phone" = %s) AND "workerID" <> %s
+                """,
+                (new_email, new_phone, worker_id),
+                fetch_one=True
+            )
+            if dup:
+                return Response(
+                    {"error": "Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # image: file upload or url string
+        image_file = request.FILES.get("image")
+        if image_file:
+            image_url = upload_worker_image(image_file, worker_id)
+        else:
+            image_url = request.data.get("image", current["image"])
+
         updated = execute_insert(
             """
             UPDATE "tbl_worker"
-            SET "workerName" = %s,
-                "phone" = %s,
-                "email" = %s,
-                "vehicleType" = %s,
-                "vehicleReg" = %s,
-                "image" = %s
-            WHERE "workerID" = %s
-            RETURNING "workerID", "workerName", "phone", "email", "vehicleType", "vehicleReg", "image"
+            SET "workerName"=%s,
+                "phone"=%s,
+                "email"=%s,
+                "vehicleType"=%s,
+                "vehicleReg"=%s,
+                "image"=%s
+            WHERE "workerID"=%s
+            RETURNING "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
             """,
-            (workerName, phone, email, vehicleType, vehicleReg, image, worker_id)
+            (workerName, new_phone, new_email, vehicleType, vehicleReg, image_url, worker_id)
         )
 
         return Response(
@@ -163,12 +194,9 @@ class UpdateProfileView(APIView):
         )
 
     def put(self, request):
-        """
-        Full update (requires all fields).
-        If you don't want strict full update, you can just call patch internally.
-        """
         return self.patch(request)
-
+    
+    
 class SignInView(APIView):
     permission_classes = [AllowAny]
 
@@ -487,5 +515,4 @@ class UpdateDeliveryStatusView(APIView):
             },
             status=status.HTTP_200_OK
         )
-
 
