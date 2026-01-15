@@ -22,6 +22,8 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'api',
+    'cloudinary',
+    'cloudinary_storage',
 ]
 
 MIDDLEWARE = [
@@ -31,6 +33,29 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME', 'dvfclibsn'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY', '219282487814685'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET', 'Cy-y1hNCUTsAoKOCOpEl__hGwp8'),
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': 'dvfclibsn',
+    'API_KEY': '219282487814685',
+    'API_SECRET': 'Cy-y1hNCUTsAoKOCOpEl__hGwp8',
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
 
 ROOT_URLCONF = 'config.urls'
 WSGI_APPLICATION = 'config.wsgi.application'
