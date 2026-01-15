@@ -7,5 +7,6 @@ urlpatterns = [
     path('profile/', ProfileView.as_view(), name='profile'),
     path('', include('api.driverappAPIs.urls')),
     path('', include('api.userappAPIs.urls')),
+    path('', include('api.adminAPIs.urls')),
     path('restaurant/', include('api.restaurantAPIs.urls')),
 ]
