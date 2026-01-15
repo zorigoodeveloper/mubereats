@@ -25,6 +25,18 @@ INSTALLED_APPS = [
     'cloudinary',
     'cloudinary_storage',
 ]
+import os
+
+# Media файлуудын тохиргоо
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Хэрэгтэй бол дараахыг нэмнэ
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024  # 15MB
+
+# Зургийн формат
+ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
