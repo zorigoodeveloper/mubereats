@@ -9,6 +9,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..database import execute_query, execute_insert, execute_update
 from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
 from .serializers import ProfileSearchSerializer, CustomerSignUpSerializer, SignInSerializer, UserSearchSerializer
+from urllib.parse import urlparse, unquote
 
 # Dummy data
 USERS = [
@@ -274,6 +275,7 @@ class SignInView(APIView):
 class ProfileUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser, )  # ← Файл upload хүлээн авах
 
     def get(self, request):
         user = request.user
@@ -315,12 +317,12 @@ class ProfileUpdateView(APIView):
     def patch(self, request):
         user = request.user
         data = request.data
+        files = request.FILES
 
-        if not data:
-            return Response({"detail": "Өөрчлөх талбар оруулаагүй байна"}, status=400)
+        if not data and not files:
+            return Response({"detail": "Өөрчлөх талбар эсвэл файл оруулаагүй байна"}, status=400)
 
         updated = False
-
         user_updates = {}
 
         # Full name
@@ -362,17 +364,40 @@ class ProfileUpdateView(APIView):
             user_updates['email'] = new_email
             updated = True
 
-        # Profile image URL (JSON-ээр илгээсэн URL-г хадгална)
-        if 'profile_image_url' in data:
+        # Profile image - Cloudinary руу upload хийх (файл илгээсэн бол)
+        if 'profile_image' in files:
+            image_file = files['profile_image']
+            try:
+                # Хуучин зургийг Cloudinary-аас устгах
+                if user.get('profile_image_url'):
+                    old_url = user['profile_image_url']
+                    # URL-аас public_id задлах
+                    parsed = urlparse(old_url)
+                    path = unquote(parsed.path.lstrip('/'))
+                    parts = path.split('/')
+                    # version (v123456...) болон folder/file
+                    public_id = '/'.join(parts[1:]).rsplit('.', 1)[0]  # extension хасах
+                    cloudinary.uploader.destroy(public_id)
+
+                # Шинэ зургийг Cloudinary руу upload
+                upload_result = cloudinary.uploader.upload(
+                    image_file,
+                    folder=f"mubereats/profiles/{user['id']}",
+                    resource_type="image",
+                    overwrite=True
+                )
+                new_url = upload_result['secure_url']
+                user_updates['profile_image_url'] = new_url
+                updated = True
+            except Exception as e:
+                return Response({"error": f"Зураг upload амжилтгүй: {str(e)}"}, status=400)
+
+        # JSON-ээр URL илгээсэн бол шууд хадгална (Cloudinary upload хийхгүй)
+        elif 'profile_image_url' in data:
             new_url = data['profile_image_url'].strip()
-            # Хоосон URL бол null болгох (устгах)
-            if not new_url:
-                new_url = None
-            # URL формат шалгах (optional)
             if new_url and not new_url.startswith(('http://', 'https://')):
                 return Response({"error": "Зөв URL байх ёстой (http эсвэл https-ээр эхэлнэ)"}, status=400)
-            
-            user_updates['profile_image_url'] = new_url
+            user_updates['profile_image_url'] = new_url if new_url else None
             updated = True
 
         # users хүснэгтийг шинэчлэх
@@ -386,7 +411,7 @@ class ProfileUpdateView(APIView):
                 tuple(values)
             )
 
-        # Customer профайл засах (өмнөх код хэвээр)
+        # Customer профайл засах
         if user['user_type'] == 'customer':
             customer_updates = {}
             if 'default_address' in data:
@@ -407,7 +432,7 @@ class ProfileUpdateView(APIView):
                 )
                 updated = True
 
-        # Шинэчлэгдсэн мэдээллийг буцааж харуулах
+        # Шинэчлэгдсэн мэдээллийг буцаах
         updated_user = execute_query(
             "SELECT * FROM users WHERE id = %s",
             (str(user['id']),),
