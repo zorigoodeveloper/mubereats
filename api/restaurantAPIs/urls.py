@@ -29,9 +29,13 @@ from .views import (
     PackageFoodListView, PackageFoodCreateView, PackageFoodUpdateView, PackageFoodDeleteView,
     # PackageDrink
     PackageDrinkListView, PackageDrinkCreateView, PackageDrinkUpdateView, PackageDrinkDeleteView,
+    # Image Upload
+    # RestaurantImageUploadView, FoodImageUploadView, ImageUploadView, RestaurantImageView,
 )
 from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     # Restaurant
@@ -43,10 +47,11 @@ urlpatterns = [
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
 
     # ------------------- FOOD -------------------
-    path('food/', FoodListView.as_view()),
+    path('<int:res_id>/foods/', FoodListView.as_view()),
     path('food/add/', FoodCreateView.as_view()),
     path('food/update/<int:foodID>/', FoodUpdateView.as_view()),
     path('food/delete/<int:foodID>/', FoodDeleteView.as_view()),
+
 
     path('food-category/', FoodCategoryListView.as_view()),
     path('food-category/add/', FoodCategoryCreateView.as_view()),   
@@ -91,4 +96,11 @@ urlpatterns = [
     #order check
     path('orders/', RestaurantOrderListView.as_view()),
     path("order/confirm/", ConfirmOrderView.as_view()),
+
+    # path('upload/<int:resID>/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-upload'),
+    # path('upload/food/<int:foodID>/image/', FoodImageUploadView.as_view(), name='food-image-upload'),
+    # path('upload/image/', ImageUploadView.as_view(), name='generic-image-upload'),
+    # path('res/<int:resID>/image/info/', RestaurantImageView.as_view(), name='restaurant-image-info'),
 ]
+# if settings.DEBUG:
+#     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
