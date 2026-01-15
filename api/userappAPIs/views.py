@@ -327,9 +327,13 @@ class ProfileUpdateView(APIView):
             user_updates['full_name'] = data['full_name'].strip()
             updated = True
         
-        # Profile image
+        # Profile image URL (frontend-ээс илгээсэн URL-г хадгална)
         if 'profile_image_url' in data:
-            user_updates['profile_image_url'] = data['profile_image_url'].strip()
+            new_url = data['profile_image_url'].strip()
+            # Хэрэв URL хоосон бол null болгох (устгах)
+            if not new_url:
+                new_url = None
+            user_updates['profile_image_url'] = new_url
             updated = True
         
         # Phone number (давхардсан шалгалттай)
