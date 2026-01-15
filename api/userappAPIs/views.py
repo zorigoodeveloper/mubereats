@@ -1,5 +1,7 @@
 from datetime import datetime
-import random, time
+import random, time,cloudinary.uploader
+from rest_framework.parsers import MultiPartParser, FormParser
+import cloudinary.uploader
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -319,24 +321,14 @@ class ProfileUpdateView(APIView):
 
         updated = False
 
-        # 1. users хүснэгтэд нийтлэг талбарууд засах
         user_updates = {}
-        
+
         # Full name
         if 'full_name' in data:
             user_updates['full_name'] = data['full_name'].strip()
             updated = True
-        
-        # Profile image URL (frontend-ээс илгээсэн URL-г хадгална)
-        if 'profile_image_url' in data:
-            new_url = data['profile_image_url'].strip()
-            # Хэрэв URL хоосон бол null болгох (устгах)
-            if not new_url:
-                new_url = None
-            user_updates['profile_image_url'] = new_url
-            updated = True
-        
-        # Phone number (давхардсан шалгалттай)
+
+        # Phone number
         if 'phone_number' in data:
             new_phone = data['phone_number'].strip()
             if new_phone == user['phone_number']:
@@ -352,8 +344,8 @@ class ProfileUpdateView(APIView):
             
             user_updates['phone_number'] = new_phone
             updated = True
-        
-        # Email (давхардсан шалгалттай)
+
+        # Email
         if 'email' in data:
             new_email = data['email'].strip().lower()
             if new_email == user['email']:
@@ -370,6 +362,19 @@ class ProfileUpdateView(APIView):
             user_updates['email'] = new_email
             updated = True
 
+        # Profile image URL (JSON-ээр илгээсэн URL-г хадгална)
+        if 'profile_image_url' in data:
+            new_url = data['profile_image_url'].strip()
+            # Хоосон URL бол null болгох (устгах)
+            if not new_url:
+                new_url = None
+            # URL формат шалгах (optional)
+            if new_url and not new_url.startswith(('http://', 'https://')):
+                return Response({"error": "Зөв URL байх ёстой (http эсвэл https-ээр эхэлнэ)"}, status=400)
+            
+            user_updates['profile_image_url'] = new_url
+            updated = True
+
         # users хүснэгтийг шинэчлэх
         if user_updates:
             set_clause = ", ".join([f"{k} = %s" for k in user_updates])
@@ -381,7 +386,7 @@ class ProfileUpdateView(APIView):
                 tuple(values)
             )
 
-        # 2. Customer профайл засах
+        # Customer профайл засах (өмнөх код хэвээр)
         if user['user_type'] == 'customer':
             customer_updates = {}
             if 'default_address' in data:
@@ -443,7 +448,7 @@ class ProfileUpdateView(APIView):
             },
             'profile': profile_data or {}
         }, status=status.HTTP_200_OK)
-
+    
 class ProfileView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
