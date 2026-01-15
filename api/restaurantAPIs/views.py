@@ -368,7 +368,7 @@ class FoodCategoryDeleteView(APIView):
         return Response({"message": "Category deleted"})
 
 
-
+# ------------------- FOOD -------------------
 # ------------------- FOOD -------------------
 class FoodListView(APIView):
     permission_classes = [AllowAny]
@@ -746,3 +746,196 @@ class RestaurantCategoryDeleteView(APIView):
         with connection.cursor() as c:
             c.execute('DELETE FROM tbl_res_type WHERE "ID"=%s', [id])
         return Response({"message": "Category deleted"}, status=status.HTTP_200_OK)
+    
+
+
+
+
+
+
+class ImageUploadView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        # 1. Зураг файл шалгах
+        if 'image' not in request.FILES:
+            return Response(
+                {"error": "No image file provided"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        image_file = request.FILES['image']
+        
+        # 2. Файлын төрөл шалгах
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return Response(
+                {"error": "Invalid image type. Allowed: JPEG, PNG, GIF, WebP"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 3. Файлын хэмжээ шалгах (2MB хүртэл)
+        max_size = 2 * 1024 * 1024  # 2MB
+        if image_file.size > max_size:
+            return Response(
+                {"error": "Image size too large. Max 2MB"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 4. Хадгалах зам бэлдэх
+        upload_dir = 'restaurant_images'
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+        
+        # 5. Файлын нэр өвөрмөц болгох
+        import uuid
+        file_name = f"{uuid.uuid4()}_{image_file.name}"
+        file_path = os.path.join(upload_dir, file_name)
+        
+        # 6. Файл хадгалах
+        fs = FileSystemStorage()
+        filename = fs.save(file_path, image_file)
+        
+        # 7. URL үүсгэх
+        file_url = fs.url(filename)
+        
+        return Response({
+            "message": "Image uploaded successfully",
+            "filename": filename,
+            "url": file_url,
+            "size": image_file.size,
+            "content_type": image_file.content_type
+        }, status=status.HTTP_201_CREATED)
+
+from cloudinary_storage.storage import MediaCloudinaryStorage
+
+class RestaurantImageUploadView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, resID):
+        if 'image' not in request.FILES:
+            return Response({"error": "No image file"}, status=400)
+
+        image_file = request.FILES['image']
+
+        # validation
+        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return Response({"error": "Invalid image type"}, status=400)
+
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({"error": "Max 5MB"}, status=400)
+
+        # 🔥 使用 Cloudinary Storage 上传
+        storage = MediaCloudinaryStorage()
+        
+        # 构建文件路径
+        file_name = f"restaurant_{resID}"
+        file_path = f"restaurants/{resID}/{file_name}"
+        
+        # 保存文件
+        file_name = storage.save(file_path, image_file)
+        image_url = storage.url(file_name)
+
+        # DB update (URL хадгална)
+        with connection.cursor() as c:
+            c.execute("""
+                UPDATE tbl_restaurant
+                SET "image" = %s
+                WHERE "resID" = %s
+                RETURNING "resID", "resName"
+            """, [image_url, resID])
+
+            result = c.fetchone()
+            if not result:
+                return Response({"error": "Restaurant not found"}, status=404)
+
+        return Response({
+            "message": "Restaurant image updated",
+            "resID": result[0],
+            "resName": result[1],
+            "image_url": image_url
+        }, status=200)
+    
+
+
+class RestaurantImageView(APIView):
+    """Рестораны зураг авах (GET method нэмэх)"""
+    permission_classes = [AllowAny]
+    
+    def get(self, request, resID):
+        """Рестораны зурагны мэдээлэл авах"""
+        try:
+            res_id_int = int(resID)
+        except ValueError:
+            return Response(
+                {"error": "Invalid restaurant ID"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        with connection.cursor() as c:
+            c.execute("""
+                SELECT "resID", "resName", "image"
+                FROM tbl_restaurant
+                WHERE "resID" = %s
+            """, [resID])
+            
+            result = c.fetchone()
+            if not result:
+                return Response(
+                    {"error": "Restaurant not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        
+        res_id, res_name, image_path = result
+        
+        response_data = {
+            "resID": res_id,
+            "resName": res_name,
+            "has_image": bool(image_path)
+        }
+        
+        # Хэрэв зураг байвал бүрэн URL нэмэх
+        if image_path:
+            base_url = request.build_absolute_uri('/')
+            response_data["image_url"] = f"{base_url}media/{image_path}"
+            response_data["image_path"] = image_path
+        else:
+            response_data["image_url"] = None
+            response_data["image_path"] = None
+        
+        return Response(response_data, status=status.HTTP_200_OK)    
+
+class FoodImageUploadView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, foodID):
+        image_file = request.FILES.get("image")
+        if not image_file:
+            return Response({"error": "No image"}, status=400)
+
+        upload = cloudinary.uploader.upload(
+            image_file,
+            folder=f"foods/{foodID}",
+            public_id=f"food_{foodID}",
+            overwrite=True
+        )
+
+        image_url = upload["secure_url"]
+
+        with connection.cursor() as c:
+            c.execute("""
+                UPDATE tbl_food
+                SET "image" = %s
+                WHERE "foodID" = %s
+                RETURNING "foodID", "foodName", "resID"
+            """, [image_url, foodID])
+
+            result = c.fetchone()
+            if not result:
+                return Response({"error": "Food not found"}, status=404)
+
+        return Response({
+            "message": "Food image updated",
+            "image_url": image_url
+        }, status=200)

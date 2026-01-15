@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    FoodImageUploadView,
+    # FoodImageUploadView,
     ImageUploadView,
     RestaurantCreateView,
     RestaurantImageUploadView,
@@ -34,7 +34,7 @@ from .views import (
     # PackageDrink
     PackageDrinkListView, PackageDrinkCreateView, PackageDrinkUpdateView, PackageDrinkDeleteView,
     # Image Upload
-    # RestaurantImageUploadView, FoodImageUploadView, ImageUploadView, RestaurantImageView,
+    FoodImageUploadView,
 )
 from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
