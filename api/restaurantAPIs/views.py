@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
 from datetime import datetime, time
+from django.core.files.storage import FileSystemStorage
 
 from config import settings
 from .serializers import (
