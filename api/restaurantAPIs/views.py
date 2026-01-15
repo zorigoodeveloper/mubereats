@@ -470,21 +470,31 @@ class DrinkListView(APIView):
             rows = c.fetchall()
         data = [{"drink_id": r[0], "drink_name": r[1], "price": r[2], "description": r[3], "pic": r[4]} for r in rows]
         return Response(data)
-
+        
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]  # test дууссаны дараа [IsAuthenticated] болгоно
+
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
+            drink_name = d.get('drink_name')
+            price = d.get('price')
+            description = d.get('description', '')
+            pic = d.get('pic', None)  # '' биш None болгоход тохиромжтой
+
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
-                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
+                    INSERT INTO tbl_drinks (drink_name, price, description, pic)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING drink_id
+                """, [drink_name, price, description, pic])
                 drink_id = c.fetchone()[0]
+
             return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class DrinkUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -751,8 +761,6 @@ class RestaurantCategoryDeleteView(APIView):
 
 
 
-
-
 class ImageUploadView(APIView):
     permission_classes = [AllowAny]
     
@@ -857,7 +865,6 @@ class RestaurantImageUploadView(APIView):
             "image_url": image_url
         }, status=200)
     
-
 
 class RestaurantImageView(APIView):
     """Рестораны зураг авах (GET method нэмэх)"""
