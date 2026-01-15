@@ -427,7 +427,7 @@ class DrinkCreateView(APIView):
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s,%s,%s) RETURNING "drink_id"
+                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
                 """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
                 drink_id = c.fetchone()[0]
             return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
