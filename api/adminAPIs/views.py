@@ -205,3 +205,97 @@ class AdminPendingDriverListView(APIView):
         """)
         return Response(drivers)
 
+
+# -------------------------------------------------------------------------
+# Бүх купон харах
+class CouponListView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def get(self, request):
+        coupons = execute_query("""
+            SELECT "ID", "code", "percent", "duration", "active"
+            FROM "tbl_coupon"
+            ORDER BY "ID" DESC
+        """)
+        return Response(coupons)
+
+
+# Нэг купон харах
+class CouponDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def get(self, request, coupon_id):
+        coupon = execute_query("""
+            SELECT "ID", "code", "percent", "duration", "active"
+            FROM "tbl_coupon"
+            WHERE "ID" = %s
+        """, (coupon_id,), fetch_one=True)
+
+        if not coupon:
+            return Response({'error': 'Coupon not found'}, status=404)
+        return Response(coupon)
+
+
+# Купон нэмэх
+class CouponCreateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def post(self, request):
+        data = request.data
+        execute_update("""
+            INSERT INTO "tbl_coupon" ("code", "percent", "duration", "active")
+            VALUES (%s, %s, %s, %s)
+        """, (
+            data.get('code'),
+            data.get('percent'),
+            data.get('duration'),
+            data.get('active', 'TRUE')
+        ))
+        return Response({'message': 'Coupon created successfully'})
+
+
+# Купон update
+class CouponUpdateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def put(self, request, coupon_id):
+        data = request.data
+        rowcount = execute_update("""
+            UPDATE "tbl_coupon"
+            SET "code" = %s,
+                "percent" = %s,
+                "duration" = %s,
+                "active" = %s
+            WHERE "ID" = %s
+        """, (
+            data.get('code'),
+            data.get('percent'),
+            data.get('duration'),
+            data.get('active'),
+            coupon_id
+        ))
+
+        if rowcount == 0:
+            return Response({'error': 'Coupon not found'}, status=404)
+        return Response({'message': 'Coupon updated successfully'})
+
+
+# Купон soft delete
+class CouponDeleteView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def delete(self, request, coupon_id):
+        rowcount = execute_update("""
+            UPDATE "tbl_coupon"
+            SET "active" = 'FALSE'
+            WHERE "ID" = %s
+        """, (coupon_id,))
+
+        if rowcount == 0:
+            return Response({'error': 'Coupon not found'}, status=404)
+        return Response({'message': 'Coupon deactivated'})
