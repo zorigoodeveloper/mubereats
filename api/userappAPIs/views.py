@@ -223,16 +223,27 @@ class SignInView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         data = serializer.validated_data
+        email = data.get('email')
+        phone_number = data.get('phone_number')
+        password = data['password']
+
+        # Имэйл эсвэл phone_number-оор хайх
+        if email:
+            user = execute_query(
+                "SELECT * FROM users WHERE email = %s",
+                (email,),
+                fetch_one=True
+            )
+        else:
+            user = execute_query(
+                "SELECT * FROM users WHERE phone_number = %s",
+                (phone_number,),
+                fetch_one=True
+            )
         
-        user = execute_query(
-            "SELECT * FROM users WHERE email = %s",
-            (data['email'],),
-            fetch_one=True
-        )
-        
-        if not user or not verify_password(data['password'], user['password_hash']):
+        if not user or not verify_password(password, user['password_hash']):
             return Response(
-                {'error': 'Имэйл эсвэл нууц үг буруу байна'},
+                {'error': 'Имэйл/утасны дугаар эсвэл нууц үг буруу байна'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
