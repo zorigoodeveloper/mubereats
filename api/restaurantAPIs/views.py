@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework import status
+from datetime import datetime, time
 
 from config import settings
 from .serializers import (
@@ -144,12 +145,8 @@ class RestaurantDetailView(APIView):
         return Response({"restaurant": res_data}, status=200) 
 
 class RestaurantListView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
-    """
-    Бүх ресторануудыг жагсаана.
-    openNow flag ашиглан одоогийн цагт нээлттэй эсэхийг харуулна.
-    status='inactive' бол автоматаар хаалттай гэж үзнэ.
-    """
+    permission_classes = [AllowAny]
+
     def get(self, request):
         with connection.cursor() as c:
             c.execute("""
@@ -163,7 +160,6 @@ class RestaurantListView(APIView):
         for r in rows:
             resID, resName, catID, phone, lng, lat, openTime, closeTime, description, image, email, status_val = r
 
-            # openNow flag
             open_now = is_restaurant_open(openTime, closeTime) and status_val == 'active'
 
             data.append({
@@ -183,6 +179,7 @@ class RestaurantListView(APIView):
             })
 
         return Response(data)
+
 
 class RestaurantUpdateView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -258,15 +255,22 @@ class RestaurantStatusSerializer(serializers.Serializer):
 # ----------------------------
 # Function to check if restaurant is open (Ulaanbaatar timezone)
 # ----------------------------
-def is_restaurant_open(open_time: time, close_time: time) -> bool:
-    tz = pytz.timezone('Asia/Ulaanbaatar')
-    now = datetime.now(tz).time()
+def is_restaurant_open(open_time, close_time):
+    """
+    Open/Close цагийг харьцуулж, ресторан нээлттэй эсэхийг буцаана.
+    None орж ирвэл хаалттай гэж үзнэ.
+    Шөнө дамжих цагийг ч зөв шалгана.
+    """
+    if not open_time or not close_time:
+        return False  # Null орж ирвэл хаалттай
 
+    now = datetime.now().time()
+
+    # Хэрвээ шөнө дамжих цаггүй бол энгийн шалгалт
     if open_time < close_time:
-        # Энгийн өдөр дундын цаг (09:00 - 21:00)
         return open_time <= now <= close_time
     else:
-        # Overnight цаг (22:00 - 05:00)
+        # Шөнө дамжих (жишээ: 22:00 - 03:00)
         return now >= open_time or now <= close_time
 
 
@@ -368,7 +372,6 @@ class FoodCategoryDeleteView(APIView):
         return Response({"message": "Category deleted"})
 
 
-# ------------------- FOOD -------------------
 # ------------------- FOOD -------------------
 class FoodListView(APIView):
     permission_classes = [AllowAny]
@@ -472,27 +475,18 @@ class DrinkListView(APIView):
         return Response(data)
         
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny]  # test дууссаны дараа [IsAuthenticated] болгоно
-
+    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
-            drink_name = d.get('drink_name')
-            price = d.get('price')
-            description = d.get('description', '')
-            pic = d.get('pic', None)  # '' биш None болгоход тохиромжтой
-
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_drinks (drink_name, price, description, pic)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING drink_id
-                """, [drink_name, price, description, pic])
+                    INSERT INTO tbl_drinks ("drink_name","price","description","pic")
+                    VALUES (%s,%s,%s,%s) RETURNING "drink_id"
+                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic','')])
                 drink_id = c.fetchone()[0]
-
             return Response({"message": "Drink added", "drink_id": drink_id}, status=status.HTTP_201_CREATED)
-
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
