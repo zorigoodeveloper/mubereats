@@ -482,13 +482,21 @@ class AddToCartView(APIView):
             return Response({"error": "Зөвхөн customer сагс ашиглаж болно"}, status=403)
 
         data = request.data
-        food_id = data.get('foodID')
-        quantity = data.get('quantity', 1)
+        food_id = data.get('foodID')  # эсвэл 'foodId' гэж байвал тааруул
 
-        if not food_id or not isinstance(quantity, int) or quantity < 1:
-            return Response({"error": "foodId болон зөв quantity (1-ээс их тоо) заавал шаардлагатай"}, status=400)
+        # Quantity-г шалгах (байхгүй эсвэл буруу бол 1 гэж тооцно)
+        quantity_raw = data.get('quantity', 1)
+        try:
+            quantity = int(quantity_raw)
+            if quantity < 1:
+                quantity = 1  # 0 эсвэл сөрөг байсан ч 1 болгоно
+        except (ValueError, TypeError):
+            quantity = 1  # string эсвэл буруу утга байсан ч 1 гэж тооцно
 
-        # 1. Хэрэглэгчийн сагс олох
+        if not food_id:
+            return Response({"error": "foodID (эсвэл foodId) заавал оруулна уу"}, status=400)
+
+        # 1. Хэрэглэгчийн сагс олох эсвэл шинээр үүсгэх
         cart = execute_query(
             """
             SELECT "cartID" FROM tbl_cart 
@@ -502,10 +510,8 @@ class AddToCartView(APIView):
         if cart:
             cart_id = cart['cartID']
         else:
-            # Шинэ cartID гар аргаар үүсгэх (bigint-д тохирох тоо)
-            # timestamp-г их тоо болгож (миллисек * 1000 + random)
-    
-            new_cart_id = int(time.time() * 1000000) + random.randint(1, 999999)  # өвөрмөц байлгах
+            # Шинэ cartID (bigint-д тохирох өвөрмөц тоо)
+            new_cart_id = int(time.time() * 1000000) + random.randint(1, 999999)
 
             cart = execute_insert(
                 """
@@ -529,6 +535,7 @@ class AddToCartView(APIView):
         )
 
         if existing:
+            # Байвал тоог нэмэх
             new_quantity = existing['stock'] + quantity
             execute_update(
                 """
@@ -539,6 +546,7 @@ class AddToCartView(APIView):
                 (new_quantity, cart_id, food_id, user.id)
             )
         else:
+            # Шинээр нэмэх (quantity 1 эсвэл илгээсэн утгаараа)
             execute_insert(
                 """
                 INSERT INTO tbl_cart_food ("cartID", "userID", "foodID", stock)
@@ -548,11 +556,12 @@ class AddToCartView(APIView):
             )
 
         return Response({
-            "message": "Сагсанд амжилттай нэмэгдлээ",
+            "message": f"Сагсанд амжилттай нэмэгдлээ ({quantity} ширхэг)",
             "foodId": food_id,
             "quantity_added": quantity,
             "cartID": cart_id
         }, status=201)
+    
 class CartView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
