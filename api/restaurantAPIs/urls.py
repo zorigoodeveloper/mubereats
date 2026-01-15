@@ -1,6 +1,10 @@
 from django.urls import path
 from .views import (
+    FoodImageUploadView,
+    ImageUploadView,
     RestaurantCreateView,
+    RestaurantImageUploadView,
+    RestaurantImageView,
     RestaurantListView, 
     RestaurantUpdateView, 
     RestaurantDeleteView,
@@ -45,6 +49,10 @@ urlpatterns = [
     path('list/', RestaurantListView.as_view()),
     path('update/<int:resID>/', RestaurantUpdateView.as_view()),
     path('delete/<int:resID>/', RestaurantDeleteView.as_view()),
+    path('<int:resID>/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-upload'),
+    path('upload/food/<int:foodID>/image/', FoodImageUploadView.as_view(), name='food-image-upload'),
+    path('upload/image/', ImageUploadView.as_view(), name='generic-image-upload'),
+    path('res/<int:resID>/image/info/', RestaurantImageView.as_view(), name='restaurant-image-info'),
 
     # ------------------- FOOD -------------------
     path('<int:res_id>/foods/', FoodListView.as_view()),

@@ -223,16 +223,27 @@ class SignInView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         data = serializer.validated_data
+        email = data.get('email')
+        phone_number = data.get('phone_number')
+        password = data['password']
+
+        # Имэйл эсвэл phone_number-оор хайх
+        if email:
+            user = execute_query(
+                "SELECT * FROM users WHERE email = %s",
+                (email,),
+                fetch_one=True
+            )
+        else:
+            user = execute_query(
+                "SELECT * FROM users WHERE phone_number = %s",
+                (phone_number,),
+                fetch_one=True
+            )
         
-        user = execute_query(
-            "SELECT * FROM users WHERE email = %s",
-            (data['email'],),
-            fetch_one=True
-        )
-        
-        if not user or not verify_password(data['password'], user['password_hash']):
+        if not user or not verify_password(password, user['password_hash']):
             return Response(
-                {'error': 'Имэйл эсвэл нууц үг буруу байна'},
+                {'error': 'Имэйл/утасны дугаар эсвэл нууц үг буруу байна'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
@@ -316,9 +327,13 @@ class ProfileUpdateView(APIView):
             user_updates['full_name'] = data['full_name'].strip()
             updated = True
         
-        # Profile image
+        # Profile image URL (frontend-ээс илгээсэн URL-г хадгална)
         if 'profile_image_url' in data:
-            user_updates['profile_image_url'] = data['profile_image_url'].strip()
+            new_url = data['profile_image_url'].strip()
+            # Хэрэв URL хоосон бол null болгох (устгах)
+            if not new_url:
+                new_url = None
+            user_updates['profile_image_url'] = new_url
             updated = True
         
         # Phone number (давхардсан шалгалттай)
