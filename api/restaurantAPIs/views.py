@@ -533,7 +533,7 @@ class DrinkListView(APIView):
         return Response(data)
 
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгох боломжтой
 
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
@@ -542,21 +542,33 @@ class DrinkCreateView(APIView):
 
             drink_name = d['drink_name']
             price = float(d['price'])  # ensure numeric
-            description = d.get('description') or ''
-            pic = d.get('pic') or ''   # Google Drive URL
+            description = d.get('description', '')
+
+            image_file = request.FILES.get("image")  # Frontend-с ирж байгаа зураг
+            image_url = ''
+            if image_file:
+                # Cloudinary-д upload хийх
+                upload = cloudinary.uploader.upload(
+                    image_file,
+                    folder="drinks/",
+                    public_id=f"{drink_name}",  
+                    overwrite=True
+                )
+                image_url = upload["secure_url"]
 
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks ("drink_name","price","description","pic")
                     VALUES (%s, %s, %s, %s)
                     RETURNING "drink_id"
-                """, [drink_name, price, description, pic])
+                """, [drink_name, price, description, image_url])
 
                 drink_id = c.fetchone()[0]
 
             return Response({
                 "message": "Drink added",
-                "drink_id": drink_id
+                "drink_id": drink_id,
+                "image_url": image_url
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
