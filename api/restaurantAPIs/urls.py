@@ -4,9 +4,9 @@ from .views import (
     FoodImageUpdateView,
     ImageUploadView,
     RestaurantCreateView,
+    RestaurantImageView,
     RestaurantImagesView,
     RestaurantListView,
-    RestaurantLogoImageUploadView,
     RestaurantMultipleImageUploadView,
     RestaurantUpdateView, 
     RestaurantDeleteView,
@@ -55,7 +55,6 @@ urlpatterns = [
 
     path('res/<int:resID>/image/info/', RestaurantImagesView.as_view(), name='restaurant-image-info'),
     path('<int:resID>/image/multiple/', RestaurantMultipleImageUploadView.as_view(), name='restaurant-image-uploads'),
-    path('<int:resID>/logo/', RestaurantLogoImageUploadView.as_view(), name='restaurant-logo-upload'),
     
 
     path('update/food/<int:foodID>/image/', FoodImageUpdateView.as_view(), name='food-image-upload'),

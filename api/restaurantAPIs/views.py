@@ -10,6 +10,10 @@ from datetime import datetime, time
 from cloudinary_storage.storage import MediaCloudinaryStorage
 import os
 from django.core.files.storage import FileSystemStorage
+import uuid
+import cloudinary.uploader
+import time
+
 
 from config import settings
 from .serializers import (
@@ -819,9 +823,6 @@ class RestaurantCategoryDeleteView(APIView):
         return Response({"message": "Category deleted"}, status=status.HTTP_200_OK)
     
 
-
-
-
 class ImageUploadView(APIView):
     permission_classes = [AllowAny]
     
@@ -876,7 +877,58 @@ class ImageUploadView(APIView):
             "content_type": image_file.content_type
         }, status=status.HTTP_201_CREATED)
 
-from cloudinary_storage.storage import MediaCloudinaryStorage
+
+
+class RestaurantMultipleImageUploadView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, resID):
+        files = request.FILES.getlist("images")
+        if not files:
+            return Response({"error": "No image files"}, status=400)
+
+        storage = MediaCloudinaryStorage()
+        uploaded = []
+
+        # request-аас type-г авна
+        file_type = request.data.get('type', 'profile')  # default нь profile
+        if file_type not in ['profile', 'logo']:
+            file_type = 'profile'
+
+        import uuid  # uuid-г import хий
+
+        for idx, image_file in enumerate(files):
+            # validation
+            allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+            if image_file.content_type not in allowed_types:
+                continue
+            if image_file.size > 5 * 1024 * 1024:
+                continue
+
+            file_path = f"restaurants/{resID}/{uuid.uuid4()}"
+            saved_name = storage.save(file_path, image_file)
+            image_url = storage.url(saved_name)
+
+            # DB insert
+            with connection.cursor() as c:
+                c.execute("""
+                    INSERT INTO tbl_restaurant_images ("resID", "image_url", "type")
+                    VALUES (%s, %s, %s)
+                    RETURNING "imageID"
+                """, [resID, image_url, file_type])
+                image_id = c.fetchone()[0]
+
+            uploaded.append({"imageID": image_id, "image_url": image_url, "type": file_type})
+
+        if not uploaded:
+            return Response({"error": "No valid images uploaded"}, status=400)
+
+        return Response({
+            "message": "Images uploaded",
+            "uploaded": uploaded
+        }, status=201)
+
+
 
 class RestaurantImageUploadView(APIView):
     permission_classes = [AllowAny]
@@ -925,10 +977,12 @@ class RestaurantImageUploadView(APIView):
             "resName": result[1],
             "image_url": image_url
         }, status=200)
-    
+
+
 
 class RestaurantImageView(APIView):
     """Рестораны зураг авах (GET method нэмэх)"""
+
     permission_classes = [AllowAny]
 
     def post(self, request, resID):
