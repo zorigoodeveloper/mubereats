@@ -623,37 +623,39 @@ class DrinkListView(APIView):
             "drinks": drinks
         })
 
-
 class DrinkCreateView(APIView):
-    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгох боломжтой
+    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгож болно
 
     def post(self, request):
         serializer = DrinkSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
 
-            drink_name = d['drink_name']
-            price = float(d['price'])  # ensure numeric
-            description = d.get('description', '')
-
-            image_file = request.FILES.get("image")  # Frontend-с ирж байгаа зураг
+            image_file = request.FILES.get("image")  # Frontend-с ирсэн файл
             image_url = ''
+
             if image_file:
-                # Cloudinary-д upload хийх
                 upload = cloudinary.uploader.upload(
                     image_file,
                     folder="drinks/",
-                    public_id=f"{drink_name}",  
+                    public_id=f"{d['drink_name']}",
                     overwrite=True
                 )
                 image_url = upload["secure_url"]
 
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_drinks ("drink_name","price","description","pic")
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO tbl_drinks
+                        ("drink_name", "resID", "price", "description", "pic")
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING "drink_id"
-                """, [drink_name, price, description, image_url])
+                """, [
+                    d['drink_name'],
+                    d['resID'],        # 🔥 restaurant ID хадгалагдана
+                    d['price'],
+                    d.get('description', ''),
+                    image_url
+                ])
 
                 drink_id = c.fetchone()[0]
 
