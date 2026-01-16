@@ -179,7 +179,8 @@ class AdminPendingWorkersView(APIView):
                    "phone",
                    "email",
                    "vehicleType",
-                   "vehicleReg",
+                    "vehicleNumber",
+                    "vehicleSeries",
                    "isApproved"
             FROM "tbl_worker"
             WHERE "isApproved" = FALSE

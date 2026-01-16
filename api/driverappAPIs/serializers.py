@@ -7,7 +7,7 @@ class WorkerSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=6)
     vehicleType = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    vehicleReg = serializers.CharField(max_length=20, required=False, allow_null=True, allow_blank=True)
+
 
 
 class SignInSerializer(serializers.Serializer):
