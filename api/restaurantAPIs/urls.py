@@ -50,8 +50,13 @@ from .views import (
     PackageDrinkCreateView, 
     PackageDrinkUpdateView, 
     PackageDrinkDeleteView,
+    RestaurantOrderDetailView,
+    OrderStatusUpdateView,
+    NewOrderCountView,
+    RestaurantOrderListView,
+    FoodDetailView
 )
-from .tViews import RestaurantOrderListView
+# from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
 from django.conf import settings
 from django.conf.urls.static import static
@@ -72,10 +77,11 @@ urlpatterns = [
     path('<int:resID>/image/info/', RestaurantImageView.as_view(), name='restaurant-image-info'),
 
     # ------------------- FOOD -------------------
-    path('<int:res_id>/foods/', FoodListView.as_view()),
+    path('<int:res_id>/food/', FoodListView.as_view()),
     path('food/add/', FoodCreateView.as_view()),
     path('food/update/<int:foodID>/', FoodUpdateView.as_view()),
     path('food/delete/<int:foodID>/', FoodDeleteView.as_view()),
+    path('food/<int:foodID>/', FoodDetailView.as_view()),
 
 
     path('food-category/', FoodCategoryListView.as_view()),
@@ -86,7 +92,7 @@ urlpatterns = [
     # ------------------- DRINK -------------------
     path('<int:res_id>/drink/', DrinkListView.as_view()),
     path('drink/add/', DrinkCreateView.as_view()),
-    path('drink/update/<int:drink_id>/', DrinkUpdateView.as_view()),
+    path('drsink/update/<int:drink_id>/', DrinkUpdateView.as_view()),
     path('drink/delete/<int:drink_id>/', DrinkDeleteView.as_view()),
 
     # ------------------- PACKAGE -------------------
@@ -123,8 +129,15 @@ urlpatterns = [
 
 
     #order check
-    path('orders/', RestaurantOrderListView.as_view()),
-    path("order/confirm/", ConfirmOrderView.as_view()),
+    # path('orders/', RestaurantOrderListView.as_view()),
+    # path("order/confirm/", ConfirmOrderView.as_view()),
+
+    path('<int:resID>/orders/', RestaurantOrderListView.as_view()),
+    path('<int:resID>/orders/<int:orderID>/', RestaurantOrderDetailView.as_view()),
+    path('<int:resID>/orders/<int:orderID>/status/', OrderStatusUpdateView.as_view()),
+    path('<int:resID>/orders/new/count/', NewOrderCountView.as_view()),
+
+
 
     # path('upload/<int:resID>/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-upload'),
     # path('upload/food/<int:foodID>/image/', FoodImageUploadView.as_view(), name='food-image-upload'),
