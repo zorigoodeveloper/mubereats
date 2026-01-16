@@ -211,6 +211,7 @@ class AdminApproveWorkerView(APIView):
             {"message": "Зөвшөөрлөө", "worker": updated},
             status=200
         )
+
 class AdminRejectWorkerView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsAdminUserCustom]
