@@ -1,19 +1,53 @@
-import cloudinary
-from django.db import connection
+import re
+import cloudinary  # keep only if used elsewhere in this file
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 
 from api.driverappAPIs.utils.cloudinary_upload import upload_worker_image
 
-from .serializers import WorkerSerializer, SignInSerializer, DeliveryActionSerializer, DeliveryStatusSerializer  
+from .serializers import (
+    WorkerSerializer,
+    SignInSerializer,
+    DeliveryActionSerializer,
+    DeliveryStatusSerializer,
+)
+
 from ..database import execute_query, execute_insert
-from ..auth import hash_password, verify_password, create_access_token, JWTAuthentication
-from rest_framework.parsers import MultiPartParser, FormParser,JSONParser
+from ..auth import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    JWTAuthentication,
+)
+from psycopg2.errors import UniqueViolation
+
 # -------------------------
 # AUTH
 # -------------------------
+
+def parse_vehicle_reg(vehicle_reg: str):
+    """
+    vehicleReg must be NNNNLLL:
+      - NNNN: 4 digits
+      - LLL: 3 uppercase letters
+    Returns (vehicle_number:int, vehicle_series:str)
+    """
+    if not vehicle_reg:
+        return None, None  # allow empty if your business allows
+
+    vehicle_reg = vehicle_reg.strip().upper()
+    if not re.fullmatch(r"\d{4}[A-Z]{3}", vehicle_reg):
+        raise ValueError("vehicleReg формат буруу. Жишээ: 1234ABC (NNNNLLL)")
+
+    vehicle_number = int(vehicle_reg[:4])
+    vehicle_series = vehicle_reg[4:]
+    return vehicle_number, vehicle_series
+
+
 class SignUpView(APIView):
     permission_classes = [AllowAny]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
@@ -29,8 +63,8 @@ class SignUpView(APIView):
 
         data = serializer.validated_data
 
-        # duplicate check
-        if execute_query(
+        # 1) Duplicate check (email/phone)
+        existing = execute_query(
             """
             SELECT "workerID"
             FROM "tbl_worker"
@@ -38,74 +72,93 @@ class SignUpView(APIView):
             """,
             (data["email"], data["phone"]),
             fetch_one=True
-        ):
+        )
+        if existing:
             return Response(
                 {"error": "Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # 2) Validate + split vehicleReg
+        vehicle_reg = data.get("vehicleReg")
+        try:
+            vehicle_number, vehicle_series = parse_vehicle_reg(vehicle_reg)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         password_hash = hash_password(data["password"])
 
-        # 1) create worker first (image = NULL)
-        worker = execute_insert(
-            """
-            INSERT INTO "tbl_worker"
-            ("workerName","phone","email","password_hash","vehicleType","vehicleReg","image")
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
-            RETURNING "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
-            """,
-            (
-                data["workerName"],
-                data["phone"],
-                data["email"],
-                password_hash,
-                data.get("vehicleType"),
-                data.get("vehicleReg"),
-                None,
+        # 3) Create worker as PENDING (no image at first)
+        try:
+            worker = execute_insert(
+                """
+                INSERT INTO "tbl_worker"
+                ("workerName","phone","email","password_hash",
+                 "vehicleType",
+                 "vehicleReg","vehicleNumber","vehicleSeries",
+                 "image","isApproved")
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING "workerID","workerName","phone","email",
+                          "vehicleType","vehicleReg","vehicleNumber","vehicleSeries",
+                          "image","isApproved"
+                """,
+                (
+                    data["workerName"],
+                    data["phone"],
+                    data["email"],
+                    password_hash,
+                    data.get("vehicleType"),
+                    vehicle_reg,         # original string
+                    vehicle_number,      # NNNN
+                    vehicle_series,      # LLL
+                    None,                # image
+                    False,               # pending approval
+                )
             )
-        )
+        except UniqueViolation:
+            # This triggers when UNIQUE(vehicleSeries, vehicleNumber) is violated
+            return Response(
+                {"error": f"{vehicle_series} үсгийн цуваанд {vehicle_number} дугаар аль хэдийн бүртгэлтэй байна"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # 2) image: file upload or URL
+        # 4) Image handling: file upload or URL (optional)
         image_url = None
-
-        # file (form-data)
-        image_file = request.FILES.get("image")
+        image_file = request.FILES.get("image")  # form-data
         if image_file:
             image_url = upload_worker_image(image_file, worker["workerID"])
         else:
-            # url string (json)
-            image_url = request.data.get("image")  # optional
+            # JSON can send image as a URL string (optional)
+            image_url = request.data.get("image")
 
-        # 3) if we got an image url, update it
         if image_url:
             worker = execute_insert(
                 """
                 UPDATE "tbl_worker"
                 SET "image" = %s
                 WHERE "workerID" = %s
-                RETURNING "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
+                RETURNING "workerID","workerName","phone","email",
+                          "vehicleType","vehicleReg","vehicleNumber","vehicleSeries",
+                          "image","isApproved"
                 """,
                 (image_url, worker["workerID"])
             )
 
-        access_token = create_access_token(
-            user_id=str(worker["workerID"]),
-            email=worker["email"]
-        )
-
+        # ✅ no token because not approved yet
         return Response(
             {
-                "message": "Амжилттай бүртгэгдлээ",
+                "message": "Бүртгэл амжилттай. Админ зөвшөөрсний дараа нэвтэрч болно.",
+                "status": "PENDING",
                 "worker": {
                     "workerID": str(worker["workerID"]),
                     "workerName": worker["workerName"],
                     "email": worker["email"],
                     "phone": worker["phone"],
-                    "vehicleType": worker["vehicleType"],
-                    "vehicleReg": worker["vehicleReg"],
-                    "image": worker.get("image"),
-                },
-                "access_token": access_token,
+                    "vehicleType": worker.get("vehicleType"),
+                    "vehicleReg": worker.get("vehicleReg"),
+                    "isApproved": worker.get("isApproved"),
+                    "image": worker.get("image"),  # remove if you don't want to return it
+                }
             },
             status=status.HTTP_201_CREATED
         )
@@ -210,7 +263,7 @@ class SignInView(APIView):
         worker = execute_query(
             """
             SELECT "workerID", "workerName", "phone", "email",
-                   "password_hash", "vehicleType", "vehicleReg"
+                   "password_hash", "vehicleType", "vehicleNumber","vehicleSeries", "image", "isApproved"
             FROM "tbl_worker"
             WHERE "email" = %s
             """,
@@ -223,6 +276,13 @@ class SignInView(APIView):
                 {"error": "Имэйл эсвэл нууц үг буруу байна"},
                 status=status.HTTP_401_UNAUTHORIZED
             )
+
+        if not worker["isApproved"]:
+            return Response(
+                {"error": "Админ зөвшөөрөөгүй байна. Түр хүлээнэ үү.", "status": "PENDING"},
+                status=403
+            )
+
 
         access_token = create_access_token(
             user_id=str(worker["workerID"]),
@@ -238,7 +298,9 @@ class SignInView(APIView):
                     "email": worker["email"],
                     "phone": worker["phone"],
                     "vehicleType": worker["vehicleType"],
-                    "vehicleReg": worker["vehicleReg"],
+                    "vehicleNumber": worker["vehicleNumber"],
+                    "vehicleSeries": worker["vehicleSeries"],
+                    "image": worker.get("image"),
                 },
                 "access_token": access_token,
             },
@@ -288,11 +350,6 @@ class ProfileView(APIView):
             status=status.HTTP_200_OK
         )
 
-
-# -------------------------
-# ORDERS (DRIVER)
-# -------------------------
-
 class AvailableOrdersView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -308,7 +365,6 @@ class AvailableOrdersView(APIView):
             """
         )
         return Response({"orders": orders}, status=status.HTTP_200_OK)
-
 
 class MyOrdersView(APIView):
     authentication_classes = [JWTAuthentication]
@@ -330,7 +386,6 @@ class MyOrdersView(APIView):
         )
 
         return Response({"orders": rows}, status=status.HTTP_200_OK)
-
 
 class DeliveryView(APIView):
     """
@@ -515,4 +570,3 @@ class UpdateDeliveryStatusView(APIView):
             },
             status=status.HTTP_200_OK
         )
-

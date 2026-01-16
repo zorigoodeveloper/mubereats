@@ -1,18 +1,21 @@
-
-# views/admin_users.py
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
-from ..database import execute_query, execute_update
-from .auth import JWTAuthentication, verify_password, create_access_token
-from .permissions import IsAdminUserCustom
 from datetime import datetime, timedelta
 
-# Бүх админ хэрэглэгч авах
+from ..database import execute_insert, execute_query, execute_update
+from .auth import JWTAuthentication, verify_password, create_access_token
+from .permissions import IsAdminUserCustom
+
+
+# ----------------------------
+# ADMIN USERS
+# ----------------------------
+
 class AdminUserListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
         users = execute_query("""
@@ -20,31 +23,28 @@ class AdminUserListView(APIView):
             FROM auth_user
             ORDER BY id DESC
         """)
-        return Response(users)
+        return Response(users, status=200)
 
 
-# Нэг админ хэрэглэгчийн мэдээлэл
 class AdminUserDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request, user_id):
         user = execute_query("""
-            SELECT id, email, username,
-                   is_active
+            SELECT id, email, username, is_active
             FROM auth_user
             WHERE id = %s
         """, (user_id,), fetch_one=True)
 
         if not user:
             return Response({'error': 'User not found'}, status=404)
-        return Response(user)
+        return Response(user, status=200)
 
 
-# Админ update
 class AdminUserUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def put(self, request, user_id):
         data = request.data
@@ -55,19 +55,18 @@ class AdminUserUpdateView(APIView):
             WHERE id = %s
         """, (
             data.get('username'),
-            data.get('is_active'),
+            data.get('is_active', True),
             user_id
         ))
 
         if rowcount == 0:
             return Response({'error': 'User not found'}, status=404)
-        return Response({'message': 'User updated successfully'})
+        return Response({'message': 'User updated successfully'}, status=200)
 
 
-# Админ soft delete
 class AdminUserDeleteView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def delete(self, request, user_id):
         rowcount = execute_update("""
@@ -78,10 +77,9 @@ class AdminUserDeleteView(APIView):
 
         if rowcount == 0:
             return Response({'error': 'User not found'}, status=404)
-        return Response({'message': 'User deactivated'})
+        return Response({'message': 'User deactivated'}, status=200)
 
 
-# Admin login
 class AdminSignInView(APIView):
     permission_classes = [AllowAny]
 
@@ -93,7 +91,7 @@ class AdminSignInView(APIView):
             return Response({'error': 'Email болон password заавал'}, status=400)
 
         user = execute_query(
-            "SELECT * FROM auth_user WHERE email = %s",
+            'SELECT id, email, password, is_active, username FROM auth_user WHERE email = %s',
             (email,),
             fetch_one=True
         )
@@ -115,13 +113,18 @@ class AdminSignInView(APIView):
             'user': {
                 'id': str(user['id']),
                 'email': user['email'],
-                'full_name': user.get('full_name')
+                'username': user.get('username'),
             }
-        })
+        }, status=200)
+
+
+# ----------------------------
+# RESTAURANTS (ADMIN APPROVAL)
+# ----------------------------
 
 class AdminApproveRestaurantView(APIView):
-    authentication_classes = [AllowAny]
-    permission_classes = [IsAdminUserCustom]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def post(self, request, resID):
         rowcount = execute_update(
@@ -130,24 +133,11 @@ class AdminApproveRestaurantView(APIView):
         )
         if rowcount == 0:
             return Response({"error": "Ресторан олдсонгүй"}, status=404)
-        return Response({"message": "Ресторан зөвшөөрсөн"})
+        return Response({"message": "Ресторан зөвшөөрсөн"}, status=200)
 
 
-class AdminApproveDriverView(APIView):
-    authentication_classes = [AllowAny]
-    permission_classes = [IsAdminUserCustom]
-
-    def post(self, request, workerID):
-        rowcount = execute_update(
-            'UPDATE "tbl_worker" SET "status"=TRUE WHERE "workerID"=%s', (workerID,)
-        )
-        if rowcount == 0:
-            return Response({"error": "Жолооч олдсонгүй"}, status=404)
-        return Response({"message": "Жолоочийг зөвшөөрсөн"})
-
-# Бүх рестораны бүртгэл харах
 class AdminRestaurantListView(APIView):
-    authentication_classes = [AllowAny]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
@@ -157,60 +147,97 @@ class AdminRestaurantListView(APIView):
             FROM "tbl_restaurant"
             ORDER BY "resID" DESC
         """)
-        return Response(restaurants)
+        return Response(restaurants, status=200)
 
 
-# Бүх жолоочийн бүртгэл харах
-class AdminDriverListView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
-
-    def get(self, request):
-        drivers = execute_query("""
-            SELECT "workerID", "workerName", "email", "phone",
-                   "vehicleType", "vehicleReg", "tuluv"
-            FROM "tbl_worker"
-            ORDER BY "workerID" DESC
-        """)
-        return Response(drivers)
-
-
-# Зөвшөөрөл хүлээж байгаа рестораны бүртгэл
 class AdminPendingRestaurantListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
         restaurants = execute_query("""
             SELECT "resID", "resName", "catID", "email", "phone",
-                "status", "openTime", "closeTime", "description"
+                   "status", "openTime", "closeTime", "description"
             FROM "tbl_restaurant"
-            WHERE "status" = 'false'
+            WHERE "status" = FALSE
             ORDER BY "resID" DESC
         """)
-        return Response(restaurants)
+        return Response(restaurants, status=200)
 
-# Зөвшөөрөл хүлээж байгаа жолоочийн бүртгэл
-class AdminPendingDriverListView(APIView):
+
+# ----------------------------
+# DRIVERS (ADMIN APPROVAL)
+# ----------------------------
+class AdminPendingWorkersView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
-        drivers = execute_query("""
-            SELECT "workerID", "workerName", "email", "phone",
-                   "vehicleType", "vehicleReg", "tuluv"
+        rows = execute_query("""
+            SELECT "workerID",
+                   "workerName",
+                   "phone",
+                   "email",
+                   "vehicleType",
+                   "vehicleReg",
+                   "isApproved"
             FROM "tbl_worker"
-            WHERE "tuluv" = 'false'
+            WHERE "isApproved" = FALSE
             ORDER BY "workerID" DESC
         """)
-        return Response(drivers)
+        return Response({"pending": rows}, status=200)
 
+class AdminApproveWorkerView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
-# -------------------------------------------------------------------------
-# Бүх купон харах
+    def post(self, request):
+        worker_id = request.data.get("workerID")
+        if not worker_id:
+            return Response({"error": "workerID шаардлагатай"}, status=400)
+
+        updated = execute_insert("""
+            UPDATE "tbl_worker"
+            SET "isApproved" = TRUE,
+                "approvedAt" = NOW()
+            WHERE "workerID" = %s
+            RETURNING "workerID","isApproved","approvedAt"
+        """, (worker_id,))
+
+        if not updated:
+            return Response({"error": "Worker олдсонгүй"}, status=404)
+
+        return Response(
+            {"message": "Зөвшөөрлөө", "worker": updated},
+            status=200
+        )
+class AdminRejectWorkerView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+
+    def post(self, request):
+        worker_id = request.data.get("workerID")
+        if not worker_id:
+            return Response({"error": "workerID шаардлагатай"}, status=400)
+
+        deleted = execute_insert("""
+            DELETE FROM "tbl_worker"
+            WHERE "workerID" = %s
+            RETURNING "workerID"
+        """, (worker_id,))
+
+        if not deleted:
+            return Response({"error": "Worker олдсонгүй"}, status=404)
+
+        return Response({"message": "Татгалзлаа"}, status=200)
+
+# ----------------------------
+# COUPONS
+# ----------------------------
+
 class CouponListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
         coupons = execute_query("""
@@ -218,13 +245,12 @@ class CouponListView(APIView):
             FROM "tbl_coupon"
             ORDER BY "ID" DESC
         """)
-        return Response(coupons)
+        return Response(coupons, status=200)
 
 
-# Нэг купон харах
 class CouponDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request, coupon_id):
         coupon = execute_query("""
@@ -235,13 +261,12 @@ class CouponDetailView(APIView):
 
         if not coupon:
             return Response({'error': 'Coupon not found'}, status=404)
-        return Response(coupon)
+        return Response(coupon, status=200)
 
 
-# Купон нэмэх
 class CouponCreateView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def post(self, request):
         data = request.data
@@ -252,15 +277,14 @@ class CouponCreateView(APIView):
             data.get('code'),
             data.get('percent'),
             data.get('duration'),
-            data.get('active', 'TRUE')
+            data.get('active', True)
         ))
-        return Response({'message': 'Coupon created successfully'})
+        return Response({'message': 'Coupon created successfully'}, status=201)
 
 
-# Купон update
 class CouponUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def put(self, request, coupon_id):
         data = request.data
@@ -281,102 +305,63 @@ class CouponUpdateView(APIView):
 
         if rowcount == 0:
             return Response({'error': 'Coupon not found'}, status=404)
-        return Response({'message': 'Coupon updated successfully'})
+        return Response({'message': 'Coupon updated successfully'}, status=200)
 
 
-# Купон soft delete
 class CouponDeleteView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def delete(self, request, coupon_id):
         rowcount = execute_update("""
             UPDATE "tbl_coupon"
-            SET "active" = 'FALSE'
+            SET "active" = FALSE
             WHERE "ID" = %s
         """, (coupon_id,))
 
         if rowcount == 0:
             return Response({'error': 'Coupon not found'}, status=404)
-        return Response({'message': 'Coupon deactivated'})
-    
+        return Response({'message': 'Coupon deactivated'}, status=200)
 
-# statistic harah 
+
+# ----------------------------
+# STATISTICS
+# ----------------------------
+
 class AdminStatisticsView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny, IsAdminUserCustom]
+    permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
-        today = datetime.utcnow().date()
-        last_week = today - timedelta(days=7)
-        last_month = today - timedelta(days=30)
-        last_half_year = today - timedelta(days=182)
-        last_year = today - timedelta(days=365)
-
+        # Note: currently your queries ignore date range (week/month/year). Kept as-is.
         stats = {}
 
-        # Restaurant бүртгэл
         stats['restaurants'] = {
-            'week': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
-            )['count'],
-            'month': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
-            )['count'],
-            'half_year': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
-            )['count'],
-            'year': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True
-            )['count'],
+            'week': execute_query('SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True)['count'],
+            'month': execute_query('SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True)['count'],
+            'half_year': execute_query('SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True)['count'],
+            'year': execute_query('SELECT COUNT(*) AS count FROM "tbl_restaurant"', fetch_one=True)['count'],
         }
 
-        # Driver бүртгэл
         stats['drivers'] = {
-            'week': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
-            )['count'],
-            'month': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
-            )['count'],
-            'half_year': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
-            )['count'],
-            'year': execute_query(
-                'SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True
-            )['count'],
+            'week': execute_query('SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True)['count'],
+            'month': execute_query('SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True)['count'],
+            'half_year': execute_query('SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True)['count'],
+            'year': execute_query('SELECT COUNT(*) AS count FROM "tbl_worker"', fetch_one=True)['count'],
         }
 
-        # Хэрэглэгч бүртгэл
         stats['customers'] = {
-            'week': execute_query(
-                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
-            )['count'],
-            'month': execute_query(
-                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
-            )['count'],
-            'half_year': execute_query(
-                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
-            )['count'],
-            'year': execute_query(
-                'SELECT COUNT(*) AS count FROM "users"', fetch_one=True
-            )['count'],
+            'week': execute_query('SELECT COUNT(*) AS count FROM "users"', fetch_one=True)['count'],
+            'month': execute_query('SELECT COUNT(*) AS count FROM "users"', fetch_one=True)['count'],
+            'half_year': execute_query('SELECT COUNT(*) AS count FROM "users"', fetch_one=True)['count'],
+            'year': execute_query('SELECT COUNT(*) AS count FROM "users"', fetch_one=True)['count'],
         }
 
-        # Нийт борлуулалт tbl_orderfood дээр
         stats['sales'] = {
-            'week': execute_query(
-                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
-            )['total'],
-            'month': execute_query(
-                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
-            )['total'],
-            'half_year': execute_query(
-                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
-            )['total'],
-            'year': execute_query(
-                'SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True
-            )['total'],
+            'week': execute_query('SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True)['total'],
+            'month': execute_query('SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True)['total'],
+            'half_year': execute_query('SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True)['total'],
+            'year': execute_query('SELECT COALESCE(SUM("price"),0) AS total FROM "tbl_orderfood"', fetch_one=True)['total'],
         }
 
-        return Response(stats)
+        return Response(stats, status=200)

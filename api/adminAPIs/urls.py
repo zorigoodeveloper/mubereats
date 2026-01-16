@@ -4,10 +4,11 @@ from .views import (
     AdminUserDetailView,
     AdminUserUpdateView,
     AdminUserDeleteView,
-    AdminSignInView, AdminApproveRestaurantView, AdminApproveDriverView, 
-    AdminRestaurantListView, AdminDriverListView,AdminPendingDriverListView, 
+    AdminSignInView, AdminApproveRestaurantView, 
+    AdminRestaurantListView, 
     AdminPendingRestaurantListView, CouponListView, CouponDetailView, CouponCreateView,
-    CouponUpdateView, CouponDeleteView, AdminStatisticsView
+    CouponUpdateView, CouponDeleteView, AdminStatisticsView, AdminPendingWorkersView,
+    AdminApproveWorkerView, AdminRejectWorkerView
 )
 
 urlpatterns = [
@@ -18,13 +19,9 @@ urlpatterns = [
     path('admin/login/', AdminSignInView.as_view()),
 
     path('admin/approve/restaurant/<int:resID>/', AdminApproveRestaurantView.as_view(), name='admin-approve-restaurant'),
-
-    # Жолооч
-    path('admin/approve/driver/<int:workerID>/', AdminApproveDriverView.as_view(), name='admin-approve-driver'),
+    
     path('admin/restaurants/', AdminRestaurantListView.as_view(), name='admin-restaurants'),
-    path('admin/drivers/', AdminDriverListView.as_view(), name='admin-drivers'),
     path('admin/restaurants/pending/', AdminPendingRestaurantListView.as_view(), name='admin-pending-restaurants'),
-    path('admin/drivers/pending/', AdminPendingDriverListView.as_view(), name='admin-pending-drivers'),
     # -----------------------------------------------------------
     path('admin/coupons/', CouponListView.as_view(), name='coupon-list'),
     path('admin/coupons/<int:coupon_id>/', CouponDetailView.as_view(), name='coupon-detail'),
@@ -33,4 +30,7 @@ urlpatterns = [
     path('admin/coupons/<int:coupon_id>/none_active/', CouponDeleteView.as_view(), name='coupon-delete'),
     path('admin/statistics/', AdminStatisticsView.as_view(), name='admin-statistics'),
 
+    path("admin/driver/pending/", AdminPendingWorkersView.as_view()),
+    path("admin/driver/approve/", AdminApproveWorkerView.as_view()),
+    path("admin/driver/reject/", AdminRejectWorkerView.as_view()),
 ]
