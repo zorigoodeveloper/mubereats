@@ -516,3 +516,56 @@ class UpdateDeliveryStatusView(APIView):
             status=status.HTTP_200_OK
         )
 
+class DriverReportView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        worker_id = request.user["id"]
+
+        # 1️⃣ Нийт хүргэлтийн тоо
+        deliveries = execute_query(
+            """
+            SELECT
+                COUNT(*)::int AS "totalDeliveries",
+                COUNT(*) FILTER (
+                    WHERE d."enddate" >= (NOW()::date - INTERVAL '30 day')
+                )::int AS "last30DaysDeliveries"
+            FROM "tbl_deliver" d
+            WHERE d."workerID" = %s
+              AND d."status" = %s
+            """,
+            (worker_id, "Дууссан"),
+            fetch_one=True
+        ) or {"totalDeliveries": 0, "last30DaysDeliveries": 0}
+
+        # 2️⃣ Нийт төгрөг – одоогоор DB дээр багана байхгүй тул 0
+        total_earnings = 0
+
+        # 3️⃣ Үнэлгээ (байхгүй бол 0)
+        try:
+            rating = execute_query(
+                """
+                SELECT
+                    COALESCE(AVG(r."rating"), 0)::float AS "avgRating",
+                    COUNT(*)::int AS "ratingCount"
+                FROM "tbl_driver_review" r
+                WHERE r."workerID" = %s
+                """,
+                (worker_id,),
+                fetch_one=True
+            )
+        except Exception:
+            rating = {"avgRating": 0, "ratingCount": 0}
+
+        return Response(
+            {
+                "workerID": str(worker_id),
+                "totalDeliveries": deliveries["totalDeliveries"],
+                "last30DaysDeliveries": deliveries["last30DaysDeliveries"],
+                "totalEarnings": total_earnings,
+                "avgRating": rating["avgRating"],
+                "ratingCount": rating["ratingCount"],
+            },
+            status=status.HTTP_200_OK
+        )
