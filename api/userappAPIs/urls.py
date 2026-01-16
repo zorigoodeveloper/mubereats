@@ -13,8 +13,12 @@ from .views import (
     CartItemDeleteView,
 )
 from .eViews import RestaurantOnlySearchAPIView, FoodOnlySearchAPIView
+<<<<<<< HEAD
 from .social_auth import SocialLoginView
 
+=======
+from .reviews import RestaurantReviewView, DriverReviewView, FoodReviewView
+>>>>>>> 92fad0920202ce0f346fc81737036d17fd001e12
 
 urlpatterns = [
     path('auth/signup/customer/', CustomerSignUpView.as_view(), name='signup'),
@@ -37,6 +41,13 @@ urlpatterns = [
     path("restaurants/search/", RestaurantOnlySearchAPIView.as_view(), name="search-restaurants"),
     path("foods/search/", FoodOnlySearchAPIView.as_view(), name="search-foods"),
 
+<<<<<<< HEAD
     path("auth/social/login/", SocialLoginView.as_view(), name="social-login"),
 
+=======
+    # REVIEWS
+    path('reviews/restaurant/', RestaurantReviewView.as_view(), name='review-restaurant'),
+    path('reviews/driver/', DriverReviewView.as_view(), name='review-driver'),
+    path('reviews/food/', FoodReviewView.as_view(), name='review-food'),
+>>>>>>> 92fad0920202ce0f346fc81737036d17fd001e12
 ]
