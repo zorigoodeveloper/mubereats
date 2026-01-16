@@ -80,6 +80,11 @@ class PackageSerializer(serializers.Serializer):
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
     portion = serializers.CharField(max_length=50, required=False)
     img = serializers.CharField(max_length=255, required=False)
+    def validate_price(self, value):
+        """Price нь сөрөг байхгүй эсэхийг шалгах"""
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Үнэ сөрөг байж болохгүй")
+        return value
 
 # ------------------- PACKAGE FOOD -------------------
 class PackageFoodSerializer(serializers.Serializer):
@@ -87,6 +92,13 @@ class PackageFoodSerializer(serializers.Serializer):
     package_id = serializers.IntegerField()
     food_id = serializers.IntegerField()
     quantity = serializers.IntegerField()
+    def validate(self, data):
+        """Нэмэлт валидаци"""
+        # Quantity нь 0-ээс их байх ёстой
+        if data.get('quantity', 0) <= 0:
+            raise serializers.ValidationError({"quantity": "Тоо хэмжээ 0-ээс их байх ёстой"})
+        
+        return data
 
 # ------------------- PACKAGE DRINK -------------------
 class PackageDrinkSerializer(serializers.Serializer):

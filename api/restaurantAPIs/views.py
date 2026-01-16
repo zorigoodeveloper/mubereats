@@ -756,17 +756,79 @@ class PackageCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageUpdateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]  # test hiij duusni ardaas [IsAuthenticated bolgono]
+
     def put(self, request, package_id):
-        serializer = PackageSerializer(data=request.data)
-        if serializer.is_valid():
+        try:
+            # Эхлээд багц байгаа эсэхийг шалгах
+            with connection.cursor() as cursor:
+                # Багц байгаа эсэхийг шалгах
+                cursor.execute('SELECT "package_id" FROM tbl_package WHERE "package_id" = %s', [package_id])
+                package_exists = cursor.fetchone()
+                
+                if not package_exists:
+                    return Response(
+                        {"error": "Багц олдсонгүй", "package_id": package_id}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            
+            # Өгөгдлийг шалгах
+            serializer = PackageSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
             d = serializer.validated_data
-            with connection.cursor() as c:
-                c.execute("""
-                    UPDATE tbl_package SET "restaurant_id"=%s,"package_name"=%s,"price"=%s WHERE "package_id"=%s
-                """, [d['restaurant_id'], d['package_name'], d['price'], package_id])
-            return Response({"message": "Package updated"})
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Багцыг шинэчлэх
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE tbl_package 
+                    SET 
+                        "restaurant_id" = %s,
+                        "package_name" = %s,
+                        "price" = %s,
+                        "portion" = %s,
+                        "img" = %s 
+                    WHERE "package_id" = %s
+                    RETURNING "package_id", "package_name", "price", "portion", "img", "restaurant_id"
+                """, [
+                    d['restaurant_id'], 
+                    d['package_name'], 
+                    d['price'],
+                    d.get('portion', ''),  # portion нь required биш
+                    d.get('img', ''),      # img нь required биш
+                    package_id
+                ])
+                
+                updated_package = cursor.fetchone()
+                
+                if updated_package:
+                    # Шинэчлэгдсэн багцын мэдээллийг буцаах
+                    return Response({
+                        "message": "Багц амжилттай шинэчлэгдлээ",
+                        "package": {
+                            "package_id": updated_package[0],
+                            "package_name": updated_package[1],
+                            "price": float(updated_package[2]) if updated_package[2] else None,
+                            "portion": updated_package[3],
+                            "img": updated_package[4],
+                            "restaurant_id": updated_package[5]
+                        }
+                    })
+                else:
+                    return Response(
+                        {"error": "Багц шинэчлэгдсэнгүй"}, 
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                    
+        except Exception as e:
+            print(f"❌ Алдаа гарлаа: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {"error": f"Алдаа гарлаа: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class PackageDeleteView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
@@ -940,17 +1002,47 @@ class PackageFoodCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PackageFoodUpdateView(APIView):
-    permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
+    permission_classes = [AllowAny]
+
     def put(self, request, id):
         serializer = PackageFoodSerializer(data=request.data)
         if serializer.is_valid():
             d = serializer.validated_data
-            with connection.cursor() as c:
-                c.execute("""
-                    UPDATE tbl_package_food SET "package_id"=%s,"food_id"=%s,"quantity"=%s WHERE "id"=%s
-                """, [d['package_id'], d['food_id'], d['quantity'], id])
-            return Response({"message": "Package Food updated"})
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                with connection.cursor() as cursor:
+                    # Хамгийн хялбар UPDATE query
+                    cursor.execute("""
+                        UPDATE tbl_package_food 
+                        SET "package_id" = %s, "food_id" = %s, "quantity" = %s 
+                        WHERE "id" = %s
+                        RETURNING "id", "package_id", "food_id", "quantity"
+                    """, [d['package_id'], d['food_id'], d['quantity'], id])
+                    
+                    updated = cursor.fetchone()
+                    
+                    if updated:
+                        return Response({
+                            "message": "Package Food updated successfully",
+                            "data": {
+                                "id": updated[0],
+                                "package_id": updated[1],
+                                "food_id": updated[2],
+                                "quantity": updated[3]
+                            }
+                        })
+                    else:
+                        return Response(
+                            {"error": "Record not found or not updated"}, 
+                            status=404
+                        )
+            except Exception as e:
+                return Response(
+                    {"error": f"Database error: {str(e)}"}, 
+                    status=500
+                )
+        
+        return Response(serializer.errors, status=400)
 
 class PackageFoodDeleteView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
