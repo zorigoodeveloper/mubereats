@@ -516,3 +516,34 @@ class UpdateDeliveryStatusView(APIView):
             status=status.HTTP_200_OK
         )
 
+
+class DriverReportView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        worker_id = request.user["id"]
+
+        # ✅ Completed statusName-г өөрийн DB дээрх утгатай тааруул (ж: 'Delivered', 'COMPLETED', 'Хүргэгдсэн')
+        row = execute_query(
+            """
+            SELECT
+                COUNT(*)::int AS total_deliveries,
+                COALESCE(SUM(o."totalAmount"), 0)::bigint AS total_amount
+            FROM "tbl_order" o
+            JOIN "tbl_delivery_status" ds ON ds."statusID" = o."statusID"
+            WHERE o."workerID" = %s
+              AND ds."statusName" IN ('Delivered', 'Хүргэгдсэн', 'COMPLETED')
+            """,
+            (worker_id,),
+            fetch_one=True
+        )
+
+        return Response(
+            {
+                "workerID": str(worker_id),
+                "totalDeliveries": row["total_deliveries"],
+                "totalAmount": row["total_amount"],
+            },
+            status=status.HTTP_200_OK
+        )
