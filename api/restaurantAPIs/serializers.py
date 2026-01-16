@@ -78,6 +78,8 @@ class PackageSerializer(serializers.Serializer):
     restaurant_id = serializers.IntegerField()
     package_name = serializers.CharField(max_length=150)
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    portion = serializers.CharField(max_length=50, required=False)
+    img = serializers.CharField(max_length=255, required=False)
 
 # ------------------- PACKAGE FOOD -------------------
 class PackageFoodSerializer(serializers.Serializer):
