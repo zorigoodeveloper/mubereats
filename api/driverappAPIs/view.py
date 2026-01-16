@@ -30,32 +30,36 @@ from psycopg2.errors import UniqueViolation
 # -------------------------
 
 def parse_vehicle_reg(vehicle_reg: str):
-    """
-    vehicleReg must be NNNNLLL:
-      - NNNN: 4 digits
-      - LLL: 3 uppercase letters
-    Returns (vehicle_number:int, vehicle_series:str)
-    """
     if not vehicle_reg:
-        return None, None  # allow empty if your business allows
+        raise ValueError("vehicleReg шаардлагатай")
 
     vehicle_reg = vehicle_reg.strip().upper()
-    if not re.fullmatch(r"\d{4}[A-Z]{3}", vehicle_reg):
-        raise ValueError("vehicleReg формат буруу. Жишээ: 1234ABC (NNNNLLL)")
 
-    vehicle_number = int(vehicle_reg[:4])
-    vehicle_series = vehicle_reg[4:]
-    return vehicle_number, vehicle_series
+    # allow 4 digits + 3 letters (Latin OR Cyrillic incl. ӨҮЁ)
+    if not re.fullmatch(r"\d{4}[A-ZА-ЯЁӨҮ]{3}", vehicle_reg):
+        raise ValueError("vehicleReg формат буруу. Жишээ: 1234ABC эсвэл 1234АБВ")
 
+    return int(vehicle_reg[:4]), vehicle_reg[4:]
 
 class SignUpView(APIView):
     permission_classes = [AllowAny]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
-        # ✅ IMPORTANT: don't pass file field into serializer
+        # ✅ Read vehicleReg from request (JSON or form-data)
+        vehicle_reg_input = request.data.get("vehicleReg")
+        if not vehicle_reg_input:
+            return Response({"error": "vehicleReg шаардлагатай. Жишээ: 1234ABC"}, status=400)
+
+        try:
+            vehicle_number, vehicle_series = parse_vehicle_reg(vehicle_reg_input)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
+
+        # ✅ IMPORTANT: remove fields that are NOT in serializer
         data_for_serializer = request.data.copy()
         data_for_serializer.pop("image", None)
+        data_for_serializer.pop("vehicleReg", None)  # <-- ✅ so serializer won't require it
 
         serializer = WorkerSerializer(data=data_for_serializer)
         if not serializer.is_valid():
@@ -63,8 +67,8 @@ class SignUpView(APIView):
 
         data = serializer.validated_data
 
-        # 1) Duplicate check (email/phone)
-        existing = execute_query(
+        # 1) Duplicate email/phone
+        if execute_query(
             """
             SELECT "workerID"
             FROM "tbl_worker"
@@ -72,34 +76,25 @@ class SignUpView(APIView):
             """,
             (data["email"], data["phone"]),
             fetch_one=True
-        )
-        if existing:
+        ):
             return Response(
                 {"error": "Имэйл эсвэл утасны дугаар аль хэдийн бүртгэлтэй байна"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 2) Validate + split vehicleReg
-        vehicle_reg = data.get("vehicleReg")
-        try:
-            vehicle_number, vehicle_series = parse_vehicle_reg(vehicle_reg)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
         password_hash = hash_password(data["password"])
 
-        # 3) Create worker as PENDING (no image at first)
+        # 2) Insert worker as PENDING (store ONLY number+series)
         try:
             worker = execute_insert(
                 """
                 INSERT INTO "tbl_worker"
                 ("workerName","phone","email","password_hash",
-                 "vehicleType",
-                 "vehicleReg","vehicleNumber","vehicleSeries",
+                 "vehicleType","vehicleNumber","vehicleSeries",
                  "image","isApproved")
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING "workerID","workerName","phone","email",
-                          "vehicleType","vehicleReg","vehicleNumber","vehicleSeries",
+                          "vehicleType","vehicleNumber","vehicleSeries",
                           "image","isApproved"
                 """,
                 (
@@ -108,43 +103,34 @@ class SignUpView(APIView):
                     data["email"],
                     password_hash,
                     data.get("vehicleType"),
-                    vehicle_reg,         # original string
-                    vehicle_number,      # NNNN
-                    vehicle_series,      # LLL
-                    None,                # image
-                    False,               # pending approval
+                    vehicle_number,
+                    vehicle_series,
+                    None,
+                    False,
                 )
             )
         except UniqueViolation:
-            # This triggers when UNIQUE(vehicleSeries, vehicleNumber) is violated
             return Response(
-                {"error": f"{vehicle_series} үсгийн цуваанд {vehicle_number} дугаар аль хэдийн бүртгэлтэй байна"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": f"{vehicle_series} үсгийн цуваанд {vehicle_number} дугаар давхцаж байна"},
+                status=400
             )
 
-        # 4) Image handling: file upload or URL (optional)
-        image_url = None
-        image_file = request.FILES.get("image")  # form-data
+        # 3) Optional image upload
+        image_file = request.FILES.get("image")
         if image_file:
             image_url = upload_worker_image(image_file, worker["workerID"])
-        else:
-            # JSON can send image as a URL string (optional)
-            image_url = request.data.get("image")
-
-        if image_url:
             worker = execute_insert(
                 """
                 UPDATE "tbl_worker"
                 SET "image" = %s
                 WHERE "workerID" = %s
                 RETURNING "workerID","workerName","phone","email",
-                          "vehicleType","vehicleReg","vehicleNumber","vehicleSeries",
+                          "vehicleType","vehicleNumber","vehicleSeries",
                           "image","isApproved"
                 """,
                 (image_url, worker["workerID"])
             )
 
-        # ✅ no token because not approved yet
         return Response(
             {
                 "message": "Бүртгэл амжилттай. Админ зөвшөөрсний дараа нэвтэрч болно.",
@@ -155,14 +141,14 @@ class SignUpView(APIView):
                     "email": worker["email"],
                     "phone": worker["phone"],
                     "vehicleType": worker.get("vehicleType"),
-                    "vehicleReg": worker.get("vehicleReg"),
+                    "vehicleNumber": worker.get("vehicleNumber"),
+                    "vehicleSeries": worker.get("vehicleSeries"),
                     "isApproved": worker.get("isApproved"),
-                    "image": worker.get("image"),  # remove if you don't want to return it
                 }
             },
             status=status.HTTP_201_CREATED
         )
-    
+
 class UpdateProfileView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
