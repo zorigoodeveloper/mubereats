@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 # Бүх админ хэрэглэгч авах
 class AdminUserListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request):
         users = execute_query("""
@@ -26,7 +26,7 @@ class AdminUserListView(APIView):
 # Нэг админ хэрэглэгчийн мэдээлэл
 class AdminUserDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request, user_id):
         user = execute_query("""
@@ -44,7 +44,7 @@ class AdminUserDetailView(APIView):
 # Админ update
 class AdminUserUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def put(self, request, user_id):
         data = request.data
@@ -67,7 +67,7 @@ class AdminUserUpdateView(APIView):
 # Админ soft delete
 class AdminUserDeleteView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def delete(self, request, user_id):
         rowcount = execute_update("""
@@ -120,7 +120,7 @@ class AdminSignInView(APIView):
         })
 
 class AdminApproveRestaurantView(APIView):
-    authentication_classes = [JWTAuthentication]
+    authentication_classes = [AllowAny]
     permission_classes = [IsAdminUserCustom]
 
     def post(self, request, resID):
@@ -134,7 +134,7 @@ class AdminApproveRestaurantView(APIView):
 
 
 class AdminApproveDriverView(APIView):
-    authentication_classes = [JWTAuthentication]
+    authentication_classes = [AllowAny]
     permission_classes = [IsAdminUserCustom]
 
     def post(self, request, workerID):
@@ -147,7 +147,7 @@ class AdminApproveDriverView(APIView):
 
 # Бүх рестораны бүртгэл харах
 class AdminRestaurantListView(APIView):
-    authentication_classes = [JWTAuthentication]
+    authentication_classes = [AllowAny]
     permission_classes = [IsAuthenticated, IsAdminUserCustom]
 
     def get(self, request):
@@ -163,7 +163,7 @@ class AdminRestaurantListView(APIView):
 # Бүх жолоочийн бүртгэл харах
 class AdminDriverListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request):
         drivers = execute_query("""
@@ -178,7 +178,7 @@ class AdminDriverListView(APIView):
 # Зөвшөөрөл хүлээж байгаа рестораны бүртгэл
 class AdminPendingRestaurantListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request):
         restaurants = execute_query("""
@@ -193,7 +193,7 @@ class AdminPendingRestaurantListView(APIView):
 # Зөвшөөрөл хүлээж байгаа жолоочийн бүртгэл
 class AdminPendingDriverListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request):
         drivers = execute_query("""
@@ -210,7 +210,7 @@ class AdminPendingDriverListView(APIView):
 # Бүх купон харах
 class CouponListView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request):
         coupons = execute_query("""
@@ -224,7 +224,7 @@ class CouponListView(APIView):
 # Нэг купон харах
 class CouponDetailView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request, coupon_id):
         coupon = execute_query("""
@@ -241,7 +241,7 @@ class CouponDetailView(APIView):
 # Купон нэмэх
 class CouponCreateView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def post(self, request):
         data = request.data
@@ -260,7 +260,7 @@ class CouponCreateView(APIView):
 # Купон update
 class CouponUpdateView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def put(self, request, coupon_id):
         data = request.data
@@ -287,7 +287,7 @@ class CouponUpdateView(APIView):
 # Купон soft delete
 class CouponDeleteView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def delete(self, request, coupon_id):
         rowcount = execute_update("""
@@ -304,7 +304,7 @@ class CouponDeleteView(APIView):
 # statistic harah 
 class AdminStatisticsView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUserCustom]
+    permission_classes = [AllowAny, IsAdminUserCustom]
 
     def get(self, request):
         today = datetime.utcnow().date()
