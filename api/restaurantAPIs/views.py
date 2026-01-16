@@ -626,7 +626,7 @@ class DrinkListView(APIView):
         # SQL query
         query = """
             SELECT 
-                d."drink_id", d."drink_name", d."price", d."description", d."pic",
+                d."drink_id", d."drink_name", d."price", d."description", d."img",
                 r."resID", r."resName", r."status"
             FROM tbl_drinks d
             JOIN tbl_restaurant r ON d."resID" = r."resID"
@@ -652,7 +652,7 @@ class DrinkListView(APIView):
                 "drink_name": row[1],
                 "price": float(row[2]),
                 "description": row[3],
-                "pic": row[4],
+                "img": row[4],
                 "resID": row[5],
                 "resName": row[6],
                 "restaurant_status": row[7],
@@ -688,7 +688,7 @@ class DrinkCreateView(APIView):
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks
-                        ("drink_name", "resID", "price", "description", "pic")
+                        ("drink_name", "resID", "price", "description", "img")
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING "drink_id"
                 """, [
@@ -717,8 +717,8 @@ class DrinkUpdateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s,"pic"=%s WHERE "drink_id"=%s
-                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic',''), drink_id])
+                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s,"img"=%s WHERE "drink_id"=%s
+                """, [d['drink_name'], d['price'], d.get('description',''), d.get('img',''), drink_id])
             return Response({"message": "Drink updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -779,73 +779,94 @@ class RestaurantPackageListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, resID):
-        with connection.cursor() as c:
-            # 1️⃣ Тухайн рестораны package-ууд
-            c.execute(
-                '''
-                SELECT "package_id", "restaurant_id", "package_name", "price"
-                FROM tbl_package
-                WHERE "restaurant_id" = %s
-                ''',
-                [resID]
-            )
-            packages = c.fetchall()
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    p."package_id",
+                    p."package_name",
+                    p."price",
+                    p."portion",
+                    p."img",
+                    json_agg(
+                        json_build_object(
+                            'foodID', f."foodID",
+                            'foodName', f."foodName",
+                            'price', f."price",
+                            'quantity', pf."quantity",
+                            'subtotal', pf."quantity" * f."price",
+                            'image', f."image"
+                        )
+                    ) AS foods
+                FROM tbl_package p
+                JOIN tbl_package_food pf ON p."package_id" = pf."package_id"
+                JOIN tbl_food f ON f."foodID" = pf."food_id"
+                WHERE p."restaurant_id" = %s
+                GROUP BY p."package_id"
+                ORDER BY p."package_name"
+            """, [resID])
+            
+            rows = cursor.fetchall()
 
-            result = []
+        data = []
+        for r in rows:
+            total_price = sum(f['subtotal'] for f in r[5])
+            data.append({
+                "package_id": r[0],
+                "package_name": r[1],
+                "price": r[2] if r[2] is not None else total_price,
+                "portion": r[3],
+                "img": r[4],
+                "total_price_computed": total_price,
+                "foods": r[5]
+            })
 
-            for p in packages:
-                package_id = p[0]
+        return Response(data)
 
-                # 2️⃣ Package-д хамаарах drinks
-                c.execute(
-                    '''
-                    SELECT "id", "drink_id", "quantity"
-                    FROM tbl_package_drinks
-                    WHERE "package_id" = %s
-                    ''',
-                    [package_id]
-                )
-                drinks = c.fetchall()
+class PackageDetailView(APIView):
+    permission_classes = [AllowAny]
 
-                drink_list = [
-                    {
-                        "id": d[0],
-                        "drink_id": d[1],
-                        "quantity": d[2]
-                    }
-                    for d in drinks
-                ]
+    def get(self, request, packageID):
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    p."package_id",
+                    p."package_name",
+                    p."price",
+                    p."portion",
+                    p."img",
+                    json_agg(
+                        json_build_object(
+                            'foodID', f."foodID",
+                            'foodName', f."foodName",
+                            'price', f."price",
+                            'quantity', pf."quantity",
+                            'subtotal', pf."quantity" * f."price",
+                            'image', f."image"
+                        )
+                    ) AS foods
+                FROM tbl_package p
+                JOIN tbl_package_food pf ON p."package_id" = pf."package_id"
+                JOIN tbl_food f ON f."foodID" = pf."food_id"
+                WHERE p."package_id" = %s
+                GROUP BY p."package_id"
+            """, [packageID])
+            
+            row = cursor.fetchone()
+            if not row:
+                return Response({"error": "Package not found"}, status=404)
 
-                # 3️⃣ Package-д хамаарах foods
-                c.execute(
-                    '''
-                    SELECT "id", "food_id", "quantity"
-                    FROM tbl_package_food
-                    WHERE "package_id" = %s
-                    ''',
-                    [package_id]
-                )
-                foods = c.fetchall()
+        total_price = sum(f['subtotal'] for f in row[5])
 
-                food_list = [
-                    {
-                        "id": f[0],
-                        "food_id": f[1],
-                        "quantity": f[2]
-                    }
-                    for f in foods
-                ]
+        return Response({
+            "package_id": row[0],
+            "package_name": row[1],
+            "price": row[2] if row[2] is not None else total_price,
+            "portion": row[3],
+            "img": row[4],
+            "total_price_computed": total_price,
+            "foods": row[5]
+        })
 
-                result.append({
-                    "package_id": p[0],
-                    "restaurant_id": p[1],
-                    "package_name": p[2],
-                    "price": p[3],
-                    "drinks": drink_list,
-                    "foods": food_list
-                })
-
-        return Response(result)
 
 # ------------------- PACKAGE FOOD -------------------
 class PackageFoodListView(APIView):
@@ -1423,9 +1444,11 @@ class OrderStatusUpdateView(APIView):
 
     def put(self, request, resID, orderID):
         new_status = request.data.get("status")
+        if not new_status:
+            return Response({"error": "Status is required"}, status=400)
 
         with connection.cursor() as cursor:
-            # 🔐 owner check
+            # 🔐 Owner check
             cursor.execute("""
                 SELECT o."status"
                 FROM tbl_order o
@@ -1437,28 +1460,44 @@ class OrderStatusUpdateView(APIView):
 
             row = cursor.fetchone()
             if not row:
-                return Response(
-                    {"error": "Forbidden"},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+                return Response({"error": "Forbidden"}, status=403)
 
             current_status = row[0]
 
-        # 🧠 status validation
-        if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
-            return Response(
-                {"error": "Invalid status transition"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # 🧠 Status validation
+            if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
+                return Response({"error": f"Invalid transition from {current_status} to {new_status}"}, status=400)
 
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                UPDATE tbl_order
-                SET status = %s
-                WHERE "orderID" = %s
-            """, [new_status, orderID])
+            # ✅ Atomic update + history
+            try:
+                cursor.execute("BEGIN;")
 
-        return Response({"message": "Order status updated"})
+                # Update order status
+                cursor.execute("""
+                    UPDATE tbl_order
+                    SET status = %s
+                    WHERE "orderID" = %s
+                """, [new_status, orderID])
+
+                # Insert into history
+                cursor.execute("""
+                    INSERT INTO tbl_order_status_history ("orderID", "old_status", "new_status", "changed_at")
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                """, [orderID, current_status, new_status])
+
+                cursor.execute("COMMIT;")
+            except Exception as e:
+                cursor.execute("ROLLBACK;")
+                return Response({"error": str(e)}, status=500)
+
+        # 🔔 Optional: notification
+        # notify_user(orderID, new_status)
+
+        return Response({
+            "message": f"Order status updated from {current_status} to {new_status}",
+            "orderID": orderID,
+            "new_status": new_status
+        })
 
 class NewOrderCountView(APIView):
     permission_classes = [AllowAny]

@@ -54,7 +54,8 @@ from .views import (
     OrderStatusUpdateView,
     NewOrderCountView,
     RestaurantOrderListView,
-    FoodDetailView
+    FoodDetailView,
+    PackageDetailView
 )
 # from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
@@ -89,6 +90,7 @@ urlpatterns = [
     path('food-category/update/<int:catID>/', FoodCategoryUpdateView.as_view()),
     path('food-category/delete/<int:catID>/', FoodCategoryDeleteView.as_view()),
     
+    
     # ------------------- DRINK -------------------
     path('<int:res_id>/drink/', DrinkListView.as_view()),
     path('drink/add/', DrinkCreateView.as_view()),
@@ -101,6 +103,7 @@ urlpatterns = [
     path('package/update/<int:package_id>/', PackageUpdateView.as_view()),
     path('package/delete/<int:package_id>/', PackageDeleteView.as_view()),
     path('<int:resID>/package/', RestaurantPackageListView.as_view()),
+    path('package/<int:packageID>/', PackageDetailView.as_view()),
     
 
     # ------------------- PACKAGE FOOD -------------------
