@@ -52,6 +52,15 @@ cloudinary.config(
     api_secret=settings.CLOUDINARY_STORAGE['API_SECRET']
 )
 
+ALLOWED_TRANSITIONS = {
+    "PENDING": ["CONFIRMED", "CANCELLED"],
+    "CONFIRMED": ["PREPARING", "CANCELLED"],
+    "PREPARING": ["READY"],
+    "READY": ["ON_DELIVERY"],
+}
+
+
+
 
 # ===== Restaurant CRUD =====
 class RestaurantCreateView(APIView):
@@ -573,6 +582,39 @@ class FoodDeleteView(APIView):
             c.execute('DELETE FROM tbl_food WHERE "foodID"=%s', [foodID])
         return Response({"message": "Food deleted"})
 
+class FoodDetailView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, foodID):
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    f."foodID",
+                    f."foodName",
+                    f."price",
+                    f."description",
+                    f."image",
+                    f."catID",
+                    f."resID"
+                FROM tbl_food f
+                WHERE f."foodID" = %s
+            """, [foodID])
+            
+            row = cursor.fetchone()
+            if not row:
+                return Response({"error": "Food not found"}, status=404)
+
+        data = {
+            "foodID": row[0],
+            "foodName": row[1],
+            "price": row[2],
+            "description": row[3],
+            "image": row[4],
+            "catID": row[5],
+            "resID": row[6],
+        }
+
+        return Response(data)
 
 # ------------------- DRINK -------------------
 class DrinkListView(APIView):
@@ -960,62 +1002,6 @@ class RestaurantPackageDrinkListView(APIView):
 
         return Response(data)
 
-# # ===== Branch CRUD =====
-# class BranchCreateView(APIView):
-#     def post(self, request):
-#         serializer = BranchSerializer(data=request.data)
-#         if serializer.is_valid():
-#             d = serializer.validated_data
-#             with connection.cursor() as c:
-#                 # Branch нэмэх
-#                 c.execute("""
-#                     INSERT INTO tbl_res_branch ("branchName", "resID", "location", "phone")
-#                     VALUES (%s, %s, %s, %s)
-#                     RETURNING "branchID"
-#                 """, [d['branchName'], d['resID'], d.get('location',''), d.get('phone','')])
-#                 branch_id = c.fetchone()[0]
-
-#             return Response({"message": "Branch added", "branchID": branch_id}, status=status.HTTP_201_CREATED)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# class BranchListView(APIView):
-#     def get(self, request):
-#         resID = request.query_params.get("resID")
-#         with connection.cursor() as c:
-#             if resID:
-#                 c.execute("""
-#                     SELECT "branchID","branchName","resID","location","phone"
-#                     FROM tbl_res_branch WHERE "resID"=%s
-#                 """, [resID])
-#             else:
-#                 c.execute('SELECT "branchID","branchName","resID","location","phone" FROM tbl_res_branch')
-#             rows = c.fetchall()
-#         data = [{"branchID": r[0], "branchName": r[1], "resID": r[2], "location": r[3], "phone": r[4]} for r in rows]
-#         return Response(data, status=status.HTTP_200_OK)
-
-
-# class BranchUpdateView(APIView):
-#     def put(self, request, branchID):
-#         serializer = BranchSerializer(data=request.data)
-#         if serializer.is_valid():
-#             d = serializer.validated_data
-#             with connection.cursor() as c:
-#                 c.execute("""
-#                     UPDATE tbl_res_branch
-#                     SET "branchName"=%s, "resID"=%s, "location"=%s, "phone"=%s
-#                     WHERE "branchID"=%s
-#                 """, [d['branchName'], d['resID'], d.get('location',''), d.get('phone',''), branchID])
-#             return Response({"message": "Branch updated"}, status=status.HTTP_200_OK)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# class BranchDeleteView(APIView):
-#     def delete(self, request, branchID):
-#         with connection.cursor() as c:
-#             c.execute('DELETE FROM tbl_res_branch WHERE "branchID"=%s', [branchID])
-#         return Response({"message": "Branch deleted"}, status=status.HTTP_200_OK)
-
 
 # ===== Create Category =====
 class RestaurantCategoryCreateView(APIView):
@@ -1063,7 +1049,6 @@ class RestaurantCategoryDeleteView(APIView):
             c.execute('DELETE FROM tbl_res_type WHERE "ID"=%s', [id])
         return Response({"message": "Category deleted"}, status=status.HTTP_200_OK)
     
-
 class ImageUploadView(APIView):
     permission_classes = [AllowAny]
     
@@ -1117,8 +1102,6 @@ class ImageUploadView(APIView):
             "size": image_file.size,
             "content_type": image_file.content_type
         }, status=status.HTTP_201_CREATED)
-
-
 
 class RestaurantMultipleImageUploadView(APIView):
     permission_classes = [AllowAny]
@@ -1191,8 +1174,6 @@ class RestaurantMultipleImageUploadView(APIView):
             "uploaded": uploaded
         }, status=200)
 
-
-
 class RestaurantImageUploadView(APIView):
     permission_classes = [AllowAny]
 
@@ -1240,8 +1221,6 @@ class RestaurantImageUploadView(APIView):
             "resName": result[1],
             "image_url": image_url
         }, status=200)
-
-
 
 class RestaurantImageView(APIView):
     """Рестораны зураг авах (GET method нэмэх)"""
@@ -1292,8 +1271,6 @@ class RestaurantImageView(APIView):
             "resName": result[1],
             "image_url": image_url
         }, status=200)
-
-
 
 class RestaurantImagesView(APIView):
     permission_classes = [AllowAny]
@@ -1346,3 +1323,155 @@ class FoodImageUpdateView(APIView):
         }, status=200)
     
 
+class RestaurantOrderListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    o."orderID",
+                    o."status",
+                    o."created_at",
+                    SUM(of."stock" * of."price") AS total_price,
+                    json_agg(
+                        json_build_object(
+                            'foodID', f."foodID",
+                            'foodName', f."foodName",
+                            'stock', of."stock",
+                            'price', of."price",
+                            'subtotal', of."stock" * of."price"
+                        )
+                    ) AS foods
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s
+                GROUP BY o."orderID"
+                ORDER BY o."created_at" DESC
+            """, [resID])
+
+            rows = cursor.fetchall()
+
+        data = [{
+            "orderID": r[0],
+            "status": r[1],
+            "created_at": r[2].isoformat(),
+            "total_price": r[3],
+            "foods": r[4]
+        } for r in rows]
+
+        return Response(data) 
+
+class RestaurantOrderDetailView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID, orderID):
+        with connection.cursor() as cursor:
+            # 🔐 owner check
+            cursor.execute("""
+                SELECT 1
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE o."orderID" = %s AND f."resID" = %s
+                LIMIT 1
+            """, [orderID, resID])
+
+            if not cursor.fetchone():
+                return Response(
+                    {"error": "Forbidden"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            cursor.execute("""
+                SELECT
+                    o."orderID",
+                    o."status",
+                    o."location",
+                    o."created_at",
+                    json_agg(
+                        json_build_object(
+                            'foodID', f."foodID",
+                            'foodName', f."foodName",
+                            'stock', of."stock",
+                            'price', of."price",
+                            'subtotal', of."stock" * of."price"
+                        )
+                    ) AS foods
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE o."orderID" = %s
+                GROUP BY o."orderID"
+            """, [orderID])
+
+            row = cursor.fetchone()
+
+        return Response({
+            "orderID": row[0],
+            "status": row[1],
+            "location": row[2],
+            "created_at": row[3].isoformat(),
+            "foods": row[4]
+        })
+
+class OrderStatusUpdateView(APIView):
+    permission_classes = [AllowAny]
+
+    def put(self, request, resID, orderID):
+        new_status = request.data.get("status")
+
+        with connection.cursor() as cursor:
+            # 🔐 owner check
+            cursor.execute("""
+                SELECT o."status"
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE o."orderID" = %s AND f."resID" = %s
+                LIMIT 1
+            """, [orderID, resID])
+
+            row = cursor.fetchone()
+            if not row:
+                return Response(
+                    {"error": "Forbidden"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            current_status = row[0]
+
+        # 🧠 status validation
+        if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
+            return Response(
+                {"error": "Invalid status transition"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                UPDATE tbl_order
+                SET status = %s
+                WHERE "orderID" = %s
+            """, [new_status, orderID])
+
+        return Response({"message": "Order status updated"})
+
+class NewOrderCountView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resID):
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT COUNT(DISTINCT o."orderID")
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s
+                  AND o."status" = 'PENDING'
+            """, [resID])
+
+            count = cursor.fetchone()[0]
+
+        return Response({"new_orders": count})
