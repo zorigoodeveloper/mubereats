@@ -748,9 +748,9 @@ class PackageCreateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    INSERT INTO tbl_package ("restaurant_id","package_name","price")
-                    VALUES (%s,%s,%s) RETURNING "package_id"
-                """, [d['restaurant_id'], d['package_name'], d['price']])
+                    INSERT INTO tbl_package ("restaurant_id","package_name","price","portion","img")
+                    VALUES (%s,%s,%s,%s,%s) RETURNING "package_id"
+                """, [d['restaurant_id'], d['package_name'], d['price'],d['portion'],d['img']])
                 package_id = c.fetchone()[0]
             return Response({"message": "Package added", "package_id": package_id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -779,92 +779,138 @@ class RestaurantPackageListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, resID):
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT 
-                    p."package_id",
-                    p."package_name",
-                    p."price",
-                    p."portion",
-                    p."img",
-                    json_agg(
-                        json_build_object(
-                            'foodID', f."foodID",
-                            'foodName', f."foodName",
-                            'price', f."price",
-                            'quantity', pf."quantity",
-                            'subtotal', pf."quantity" * f."price",
-                            'image', f."image"
-                        )
-                    ) AS foods
-                FROM tbl_package p
-                JOIN tbl_package_food pf ON p."package_id" = pf."package_id"
-                JOIN tbl_food f ON f."foodID" = pf."food_id"
-                WHERE p."restaurant_id" = %s
-                GROUP BY p."package_id"
-                ORDER BY p."package_name"
-            """, [resID])
-            
-            rows = cursor.fetchall()
-
+        print(f"🔍 Рестораны ID: {resID}")
+        
+        try:
+            with connection.cursor() as cursor:
+                # 1. Ресторан байгаа эсэхийг шалгах (БАГИЙН ДҮРМИЙГ АШИГЛАХ)
+                cursor.execute('SELECT "resID", "resName" FROM tbl_restaurant WHERE "resID" = %s', [resID])
+                restaurant = cursor.fetchone()
+                
+                if not restaurant:
+                    return Response({
+                        "error": "Ресторан олдсонгүй",
+                        "restaurant_id": resID
+                    }, status=404)
+                
+                print(f"✅ Ресторан олдлоо: ID={restaurant[0]}, Name={restaurant[1]}")
+                
+                # 2. Багцууд байгаа эсэхийг шалгах
+                cursor.execute('SELECT "package_id", "package_name" FROM tbl_package WHERE "restaurant_id" = %s', [resID])
+                packages = cursor.fetchall()
+                
+                if not packages:
+                    return Response({
+                        "message": "Энэ ресторанд багц олдсонгүй",
+                        "restaurant_id": resID,
+                        "restaurant_name": restaurant[1]
+                    })
+                
+                print(f"✅ {len(packages)} багц олдлоо")
+                
+                # 3. Бүрэн query ажиллуулах (БАГИЙН ДҮРМИЙГ АШИГЛАХ)
+                cursor.execute("""
+                    SELECT 
+                        p."package_id",
+                        p."package_name",
+                        p."price",
+                        p."portion",
+                        p."img",
+                        COALESCE(json_agg(
+                            json_build_object(
+                                'foodID', f."foodID",
+                                'foodName', f."foodName",
+                                'price', f."price",
+                                'quantity', pf."quantity",
+                                'subtotal', pf."quantity" * f."price",
+                                'image', f."image"
+                            )
+                        ) FILTER (WHERE f."foodID" IS NOT NULL), '[]') AS foods
+                    FROM tbl_package p
+                    LEFT JOIN tbl_package_food pf ON p."package_id" = pf."package_id"
+                    LEFT JOIN tbl_food f ON f."foodID" = pf."food_id"
+                    WHERE p."restaurant_id" = %s
+                    GROUP BY p."package_id", p."package_name", p."price", p."portion", p."img"
+                    ORDER BY p."package_name"
+                """, [resID])
+                
+                rows = cursor.fetchall()
+                print(f"✅ Бүрэн query-ийн үр дүн: {len(rows)} мөр")
+                
+        except Exception as e:
+            print(f"❌ Алдаа гарлаа: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=500)
+        
+        # Өгөгдлийг бэлтгэх
         data = []
         for r in rows:
-            total_price = sum(f['subtotal'] for f in r[5])
+            foods = r[5] if r[5] else []
+            total_price = sum(f.get('subtotal', 0) for f in foods)
+            
             data.append({
                 "package_id": r[0],
                 "package_name": r[1],
-                "price": r[2] if r[2] is not None else total_price,
+                "price": float(r[2]) if r[2] is not None else float(total_price),
                 "portion": r[3],
                 "img": r[4],
-                "total_price_computed": total_price,
-                "foods": r[5]
+                "total_price_computed": float(total_price),
+                "foods": foods
             })
-
+        
         return Response(data)
 
 class PackageDetailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, packageID):
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT 
-                    p."package_id",
-                    p."package_name",
-                    p."price",
-                    p."portion",
-                    p."img",
-                    json_agg(
-                        json_build_object(
-                            'foodID', f."foodID",
-                            'foodName', f."foodName",
-                            'price', f."price",
-                            'quantity', pf."quantity",
-                            'subtotal', pf."quantity" * f."price",
-                            'image', f."image"
-                        )
-                    ) AS foods
-                FROM tbl_package p
-                JOIN tbl_package_food pf ON p."package_id" = pf."package_id"
-                JOIN tbl_food f ON f."foodID" = pf."food_id"
-                WHERE p."package_id" = %s
-                GROUP BY p."package_id"
-            """, [packageID])
-            
-            row = cursor.fetchone()
-            if not row:
-                return Response({"error": "Package not found"}, status=404)
+        try:
+            with connection.cursor() as cursor:
+                # БАГИЙН ДҮРМИЙГ АШИГЛАХ
+                cursor.execute("""
+                    SELECT 
+                        p."package_id",
+                        p."package_name",
+                        p."price",
+                        p."portion",
+                        p."img",
+                        COALESCE(json_agg(
+                            json_build_object(
+                                'foodID', f."foodID",
+                                'foodName', f."foodName",
+                                'price', f."price",
+                                'quantity', pf."quantity",
+                                'subtotal', pf."quantity" * f."price",
+                                'image', f."image"
+                            )
+                        ) FILTER (WHERE f."foodID" IS NOT NULL), '[]') AS foods
+                    FROM tbl_package p
+                    LEFT JOIN tbl_package_food pf ON p."package_id" = pf."package_id"
+                    LEFT JOIN tbl_food f ON f."foodID" = pf."food_id"
+                    WHERE p."package_id" = %s
+                    GROUP BY p."package_id"
+                """, [packageID])
+                
+                row = cursor.fetchone()
+                if not row:
+                    return Response({"error": "Багц олдсонгүй"}, status=404)
 
-        total_price = sum(f['subtotal'] for f in row[5])
+        except Exception as e:
+            print(f"❌ Алдаа гарлаа: {str(e)}")
+            return Response({"error": str(e)}, status=500)
+
+        foods = row[5] if row[5] else []
+        total_price = sum(f.get('subtotal', 0) for f in foods)
 
         return Response({
             "package_id": row[0],
             "package_name": row[1],
-            "price": row[2] if row[2] is not None else total_price,
+            "price": float(row[2]) if row[2] is not None else float(total_price),
             "portion": row[3],
             "img": row[4],
-            "total_price_computed": total_price,
-            "foods": row[5]
+            "total_price_computed": float(total_price),
+            "foods": foods
         })
 
 
