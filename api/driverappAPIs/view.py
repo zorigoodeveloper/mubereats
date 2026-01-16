@@ -516,7 +516,6 @@ class UpdateDeliveryStatusView(APIView):
             status=status.HTTP_200_OK
         )
 
-
 class DriverReportView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -524,26 +523,49 @@ class DriverReportView(APIView):
     def get(self, request):
         worker_id = request.user["id"]
 
-        # ✅ Completed statusName-г өөрийн DB дээрх утгатай тааруул (ж: 'Delivered', 'COMPLETED', 'Хүргэгдсэн')
-        row = execute_query(
+        # 1️⃣ Нийт хүргэлтийн тоо
+        deliveries = execute_query(
             """
             SELECT
-                COUNT(*)::int AS total_deliveries,
-                COALESCE(SUM(o."totalAmount"), 0)::bigint AS total_amount
-            FROM "tbl_order" o
-            JOIN "tbl_delivery_status" ds ON ds."statusID" = o."statusID"
-            WHERE o."workerID" = %s
-              AND ds."statusName" IN ('Delivered', 'Хүргэгдсэн', 'COMPLETED')
+                COUNT(*)::int AS "totalDeliveries",
+                COUNT(*) FILTER (
+                    WHERE d."enddate" >= (NOW()::date - INTERVAL '30 day')
+                )::int AS "last30DaysDeliveries"
+            FROM "tbl_deliver" d
+            WHERE d."workerID" = %s
+              AND d."status" = %s
             """,
-            (worker_id,),
+            (worker_id, "Дууссан"),
             fetch_one=True
-        )
+        ) or {"totalDeliveries": 0, "last30DaysDeliveries": 0}
+
+        # 2️⃣ Нийт төгрөг – одоогоор DB дээр багана байхгүй тул 0
+        total_earnings = 0
+
+        # 3️⃣ Үнэлгээ (байхгүй бол 0)
+        try:
+            rating = execute_query(
+                """
+                SELECT
+                    COALESCE(AVG(r."rating"), 0)::float AS "avgRating",
+                    COUNT(*)::int AS "ratingCount"
+                FROM "tbl_driver_review" r
+                WHERE r."workerID" = %s
+                """,
+                (worker_id,),
+                fetch_one=True
+            )
+        except Exception:
+            rating = {"avgRating": 0, "ratingCount": 0}
 
         return Response(
             {
                 "workerID": str(worker_id),
-                "totalDeliveries": row["total_deliveries"],
-                "totalAmount": row["total_amount"],
+                "totalDeliveries": deliveries["totalDeliveries"],
+                "last30DaysDeliveries": deliveries["last30DaysDeliveries"],
+                "totalEarnings": total_earnings,
+                "avgRating": rating["avgRating"],
+                "ratingCount": rating["ratingCount"],
             },
             status=status.HTTP_200_OK
         )
