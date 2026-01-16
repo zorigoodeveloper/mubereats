@@ -217,17 +217,33 @@ class RestaurantListView(APIView):
     def get(self, request):
         with connection.cursor() as c:
             c.execute("""
-                SELECT "resID", "resName", "catID", "phone", "lng", "lat", "openTime", "closeTime",
-                       "description", "image", "email", "status"
+                SELECT 
+                    "resID", "resName", "catID", "phone",
+                    "lng", "lat", "openTime", "closeTime",
+                    "description", "image", "email", "status"
                 FROM tbl_restaurant
             """)
             rows = c.fetchall()
 
         data = []
         for r in rows:
-            resID, resName, catID, phone, lng, lat, openTime, closeTime, description, image, email, status_val = r
+            (
+                resID, resName, catID, phone,
+                lng, lat, openTime, closeTime,
+                description, image, email, status_val
+            ) = r
 
             open_now = is_restaurant_open(openTime, closeTime) and status_val == 'active'
+
+            # 🔥 IMAGE URL ЗАСВАР
+            image_url = None
+            if image:
+                if image.startswith("http"):
+                    # Cloudinary эсвэл external URL
+                    image_url = image
+                else:
+                    # MEDIA ROOT файл
+                    image_url = request.build_absolute_uri(f"/media/{image}")
 
             data.append({
                 "resID": resID,
@@ -239,13 +255,13 @@ class RestaurantListView(APIView):
                 "openTime": openTime,
                 "closeTime": closeTime,
                 "description": description,
-                "image": image,
+                "image": image_url,      # 🔥 ЗӨВ IMAGE
                 "email": email,
                 "status": status_val,
                 "openNow": open_now
             })
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class RestaurantUpdateView(APIView):
@@ -618,23 +634,28 @@ class FoodDetailView(APIView):
 
 # ------------------- DRINK -------------------
 class DrinkListView(APIView):
-    permission_classes = [AllowAny]  # Дараа нь isAuthenticated болгож болно
+    permission_classes = [AllowAny]
 
     def get(self, request, res_id):
         search = request.query_params.get('search')
 
-        # SQL query
         query = """
-            SELECT 
-                d."drink_id", d."drink_name", d."price", d."description", d."pic",
-                r."resID", r."resName", r."status"
+            SELECT
+                d."drink_id",
+                d."drink_name",
+                d."price",
+                d."description",
+                d."pic",
+                r."resID",
+                r."resName",
+                r."status"
             FROM tbl_drinks d
-            JOIN tbl_restaurant r ON d."resID" = r."resID"
-            WHERE r."resID" = %s
+            JOIN tbl_restaurant r
+                ON d."resID" = r."resID"
+            WHERE d."resID" = %s
         """
         params = [res_id]
 
-        # Search filter
         if search:
             query += ' AND (d."drink_name" ILIKE %s OR d."description" ILIKE %s)'
             params.extend([f'%{search}%', f'%{search}%'])
@@ -652,11 +673,11 @@ class DrinkListView(APIView):
                 "drink_name": row[1],
                 "price": float(row[2]),
                 "description": row[3],
-                "pic": row[4],
+                "image": row[4],          # Cloudinary URL
                 "resID": row[5],
                 "resName": row[6],
                 "restaurant_status": row[7],
-                "image_url": row[4]  # Cloudinary URL
+                "image_url": row[4]       # frontend-д шууд ашиглана
             })
 
         return Response({
