@@ -626,7 +626,7 @@ class DrinkListView(APIView):
         # SQL query
         query = """
             SELECT 
-                d."drink_id", d."drink_name", d."price", d."description", d."pic",
+                d."drink_id", d."drink_name", d."price", d."description", d."img",
                 r."resID", r."resName", r."status"
             FROM tbl_drinks d
             JOIN tbl_restaurant r ON d."resID" = r."resID"
@@ -652,7 +652,7 @@ class DrinkListView(APIView):
                 "drink_name": row[1],
                 "price": float(row[2]),
                 "description": row[3],
-                "pic": row[4],
+                "img": row[4],
                 "resID": row[5],
                 "resName": row[6],
                 "restaurant_status": row[7],
@@ -688,7 +688,7 @@ class DrinkCreateView(APIView):
             with connection.cursor() as c:
                 c.execute("""
                     INSERT INTO tbl_drinks
-                        ("drink_name", "resID", "price", "description", "pic")
+                        ("drink_name", "resID", "price", "description", "img")
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING "drink_id"
                 """, [
@@ -717,8 +717,8 @@ class DrinkUpdateView(APIView):
             d = serializer.validated_data
             with connection.cursor() as c:
                 c.execute("""
-                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s,"pic"=%s WHERE "drink_id"=%s
-                """, [d['drink_name'], d['price'], d.get('description',''), d.get('pic',''), drink_id])
+                    UPDATE tbl_drinks SET "drink_name"=%s,"price"=%s,"description"=%s,"img"=%s WHERE "drink_id"=%s
+                """, [d['drink_name'], d['price'], d.get('description',''), d.get('img',''), drink_id])
             return Response({"message": "Drink updated"})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
