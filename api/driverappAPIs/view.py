@@ -1,6 +1,5 @@
 import re
 import cloudinary  # keep only if used elsewhere in this file
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -149,6 +148,9 @@ class SignUpView(APIView):
             status=status.HTTP_201_CREATED
         )
 
+import re
+from psycopg2.errors import UniqueViolation
+
 class UpdateProfileView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -159,7 +161,8 @@ class UpdateProfileView(APIView):
 
         current = execute_query(
             """
-            SELECT "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
+            SELECT "workerID","workerName","phone","email",
+                   "vehicleType","vehicleNumber","vehicleSeries","image"
             FROM "tbl_worker"
             WHERE "workerID" = %s
             """,
@@ -170,12 +173,11 @@ class UpdateProfileView(APIView):
         if not current:
             return Response({"error": "Профайл олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
 
-        # merge fields
+        # merge simple fields
         workerName = request.data.get("workerName", current["workerName"])
         new_phone = request.data.get("phone", current["phone"])
         new_email = request.data.get("email", current["email"])
         vehicleType = request.data.get("vehicleType", current["vehicleType"])
-        vehicleReg = request.data.get("vehicleReg", current["vehicleReg"])
 
         # dup check if changed
         if new_email != current["email"] or new_phone != current["phone"]:
@@ -194,27 +196,73 @@ class UpdateProfileView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # image: file upload or url string
+        # -----------------------------
+        # VEHICLE UPDATE (supports both formats)
+        # -----------------------------
+        vehicle_number = current.get("vehicleNumber")
+        vehicle_series = current.get("vehicleSeries")
+
+        vehicle_reg_input = request.data.get("vehicleReg") or request.data.get("vehicle_reg")
+        if vehicle_reg_input:
+            # parse_vehicle_reg should allow Mongolian letters if you updated it
+            # expected return: (number, series)
+            try:
+                vehicle_number, vehicle_series = parse_vehicle_reg(vehicle_reg_input)
+            except ValueError as e:
+                return Response({"error": str(e)}, status=400)
+        else:
+            # optional direct fields
+            if request.data.get("vehicleNumber") is not None:
+                try:
+                    vehicle_number = int(request.data.get("vehicleNumber"))
+                except ValueError:
+                    return Response({"error": "vehicleNumber тоо байх ёстой"}, status=400)
+
+            if request.data.get("vehicleSeries") is not None:
+                vehicle_series = str(request.data.get("vehicleSeries")).strip().upper()
+
+                # allow Latin + Cyrillic (incl Ө Ү Ё)
+                if not re.fullmatch(r"[A-ZА-ЯЁӨҮ]{3}", vehicle_series):
+                    return Response(
+                        {"error": "vehicleSeries 3 үсэг байх ёстой (ж: ABC эсвэл АБВ)"},
+                        status=400
+                    )
+
+        # -----------------------------
+        # IMAGE update: file upload or url
+        # -----------------------------
         image_file = request.FILES.get("image")
         if image_file:
             image_url = upload_worker_image(image_file, worker_id)
         else:
             image_url = request.data.get("image", current["image"])
 
-        updated = execute_insert(
-            """
-            UPDATE "tbl_worker"
-            SET "workerName"=%s,
-                "phone"=%s,
-                "email"=%s,
-                "vehicleType"=%s,
-                "vehicleReg"=%s,
-                "image"=%s
-            WHERE "workerID"=%s
-            RETURNING "workerID","workerName","phone","email","vehicleType","vehicleReg","image"
-            """,
-            (workerName, new_phone, new_email, vehicleType, vehicleReg, image_url, worker_id)
-        )
+        # -----------------------------
+        # UPDATE DB
+        # -----------------------------
+        try:
+            updated = execute_insert(
+                """
+                UPDATE "tbl_worker"
+                SET "workerName"=%s,
+                    "phone"=%s,
+                    "email"=%s,
+                    "vehicleType"=%s,
+                    "vehicleNumber"=%s,
+                    "vehicleSeries"=%s,
+                    "image"=%s
+                WHERE "workerID"=%s
+                RETURNING "workerID","workerName","phone","email",
+                          "vehicleType","vehicleNumber","vehicleSeries","image"
+                """,
+                (workerName, new_phone, new_email, vehicleType,
+                 vehicle_number, vehicle_series, image_url, worker_id)
+            )
+        except UniqueViolation:
+            return Response(
+                {"error": f"{vehicle_series} үсгийн цуваанд {vehicle_number} дугаар давхцаж байна"},
+                status=400
+            )
 
         return Response(
             {
@@ -225,7 +273,8 @@ class UpdateProfileView(APIView):
                     "email": updated["email"],
                     "phone": updated["phone"],
                     "vehicleType": updated["vehicleType"],
-                    "vehicleReg": updated["vehicleReg"],
+                    "vehicleNumber": updated.get("vehicleNumber"),
+                    "vehicleSeries": updated.get("vehicleSeries"),
                     "image": updated.get("image"),
                 },
             },
@@ -234,6 +283,7 @@ class UpdateProfileView(APIView):
 
     def put(self, request):
         return self.patch(request)
+
     
     
 class SignInView(APIView):
@@ -293,13 +343,12 @@ class SignInView(APIView):
             status=status.HTTP_200_OK
         )
 
-
 class ProfileView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        worker = request.user  # must contain {"id": <workerID>, ...}
+        worker = request.user
 
         profile = execute_query(
             """
@@ -309,7 +358,8 @@ class ProfileView(APIView):
                 "phone",
                 "email",
                 "vehicleType",
-                "vehicleReg",
+                "vehicleNumber",
+                "vehicleSeries",
                 "image"
             FROM "tbl_worker"
             WHERE "workerID" = %s
@@ -318,9 +368,13 @@ class ProfileView(APIView):
             fetch_one=True
         )
 
-
         if not profile:
             return Response({"error": "Профайл олдсонгүй"}, status=status.HTTP_404_NOT_FOUND)
+
+        # build "NNNNLLL" for UI without storing it
+        vehicle_reg = None
+        if profile.get("vehicleNumber") is not None and profile.get("vehicleSeries"):
+            vehicle_reg = f'{int(profile["vehicleNumber"]):04d}{str(profile["vehicleSeries"]).strip()}'
 
         return Response(
             {
@@ -330,11 +384,13 @@ class ProfileView(APIView):
                     "email": profile["email"],
                     "phone": profile["phone"],
                     "vehicleType": profile["vehicleType"],
-                    "vehicleReg": profile["vehicleReg"],
+                    "vehicleReg": vehicle_reg,   # ✅ computed
+                    "image": profile.get("image"),
                 }
             },
             status=status.HTTP_200_OK
         )
+
 
 class AvailableOrdersView(APIView):
     authentication_classes = [JWTAuthentication]
