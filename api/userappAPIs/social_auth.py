@@ -48,12 +48,14 @@ class SocialLoginView(APIView):
                 }
             ).json()
 
-            if "email" not in userinfo:
+            if "id" not in userinfo:
                 return Response({"error": "Facebook token буруу"}, status=401)
 
-            email = userinfo["email"]
+            fb_id = userinfo["id"]
+            email = userinfo.get("email") or f"{fb_id}@facebook.local"
             full_name = userinfo.get("name", "")
             profile_image = userinfo.get("picture", {}).get("data", {}).get("url")
+
 
         # ===== USER CHECK =====
         user = execute_query(
