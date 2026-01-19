@@ -52,11 +52,13 @@ cloudinary.config(
     api_secret=settings.CLOUDINARY_STORAGE['API_SECRET']
 )
 
+# Жишээ: зөвшөөрөгдсөн status урсгал
 ALLOWED_TRANSITIONS = {
-    "PENDING": ["CONFIRMED", "CANCELLED"],
-    "CONFIRMED": ["PREPARING", "CANCELLED"],
-    "PREPARING": ["READY"],
-    "READY": ["ON_DELIVERY"],
+    "PENDING": ["COOKING", "CANCELLED"],
+    "COOKING": ["READY", "CANCELLED"],
+    "READY": ["PAID", "CANCELLED"],
+    "PAID": [],
+    "CANCELLED": [],
 }
 
 
@@ -1585,48 +1587,42 @@ class OrderStatusUpdateView(APIView):
         if not new_status:
             return Response({"error": "Status is required"}, status=400)
 
-        with connection.cursor() as cursor:
-            # 🔐 Owner check
-            cursor.execute("""
-                SELECT o."status"
-                FROM tbl_order o
-                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
-                JOIN tbl_food f ON f."foodID" = of."foodID"
-                WHERE o."orderID" = %s AND f."resID" = %s
-                LIMIT 1
-            """, [orderID, resID])
+        try:
+            # 🔐 Owner check: order тухайн рестораных уу
+            order = Order.objects.get(pk=orderID, res_id=resID)
+        except Order.DoesNotExist:
+            return Response({"error": "Forbidden or order not found"}, status=403)
 
-            row = cursor.fetchone()
-            if not row:
-                return Response({"error": "Forbidden"}, status=403)
+        current_status = order.status
 
-            current_status = row[0]
+        # 🧠 Status validation
+        if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
+            return Response({
+                "error": f"Invalid transition from {current_status} to {new_status}"
+            }, status=400)
 
-            # 🧠 Status validation
-            if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
-                return Response({"error": f"Invalid transition from {current_status} to {new_status}"}, status=400)
-
-            # ✅ Atomic update + history
-            try:
-                cursor.execute("BEGIN;")
-
+        # ✅ Atomic update + history
+        try:
+            with transaction.atomic():
                 # Update order status
-                cursor.execute("""
-                    UPDATE tbl_order
-                    SET status = %s
-                    WHERE "orderID" = %s
-                """, [new_status, orderID])
+                order.status = new_status
+                order.save()
 
                 # Insert into history
-                cursor.execute("""
-                    INSERT INTO tbl_order_status_history ("orderID", "old_status", "new_status", "changed_at")
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                """, [orderID, current_status, new_status])
+                OrderStatusHistory.objects.create(
+                    order=order,
+                    old_status=current_status,
+                    new_status=new_status
+                )
 
-                cursor.execute("COMMIT;")
-            except Exception as e:
-                cursor.execute("ROLLBACK;")
-                return Response({"error": str(e)}, status=500)
+            return Response({
+                "orderID": orderID,
+                "old_status": current_status,
+                "new_status": new_status
+            })
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
         # 🔔 Optional: notification
         # notify_user(orderID, new_status)
@@ -1654,3 +1650,76 @@ class NewOrderCountView(APIView):
             count = cursor.fetchone()[0]
 
         return Response({"new_orders": count})
+
+#Ресторан тус бүрийн нийт орлого, захиалгын тоо, хоолны орлого
+class RevenueReportView(APIView):
+    permission_classes = [AllowAny]  # Хэрвээ login шаардлагатай бол өөрчил
+
+    def get(self, request):
+        """
+        Restaurant-аар орлогын тайлан
+        Шууд SQL query ашиглана
+        """
+        try:
+            with connection.cursor() as cursor:
+                query = """
+                SELECT 
+                    r."resName" AS restaurant_name,
+                    COUNT(DISTINCT o."orderID") AS total_orders,
+                    SUM(o."total_price") AS total_revenue,
+                    SUM(of."stock" * of."price") AS total_food_revenue
+                FROM tbl_order o
+                JOIN tbl_restaurant r ON r."resID" = o."res_id"
+                JOIN tbl_orderfood of ON of."orderID" = o."orderID"
+                WHERE o."status" = 'PAID'
+                GROUP BY r."resName"
+                ORDER BY total_revenue DESC;
+                """
+                cursor.execute(query)
+                columns = [col[0] for col in cursor.description]
+                data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            return Response({"report": data}, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+#Ресторан + өдөр тутмын орлого
+class DailyRevenueReportView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Restaurant тус бүрийн өдөр тутмын орлого
+        query param-аар хоорондын өдөр ашиглаж болно
+        ?start_date=2026-01-01&end_date=2026-01-19
+        """
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        try:
+            with connection.cursor() as cursor:
+                query = """
+                SELECT 
+                    r."resName" AS restaurant_name,
+                    o."date",
+                    SUM(o."total_price") AS total_revenue
+                FROM tbl_order o
+                JOIN tbl_restaurant r ON r."resID" = o."res_id"
+                WHERE o."status" = 'PAID'
+                """
+                
+                params = []
+                if start_date and end_date:
+                    query += " AND o.\"date\" BETWEEN %s AND %s"
+                    params.extend([start_date, end_date])
+
+                query += " GROUP BY r.\"resName\", o.\"date\" ORDER BY o.\"date\", r.\"resName\";"
+
+                cursor.execute(query, params)
+                columns = [col[0] for col in cursor.description]
+                data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            return Response({"daily_report": data}, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)

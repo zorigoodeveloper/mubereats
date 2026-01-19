@@ -55,7 +55,9 @@ from .views import (
     NewOrderCountView,
     RestaurantOrderListView,
     FoodDetailView,
-    PackageDetailView
+    PackageDetailView,
+    RevenueReportView,
+    DailyRevenueReportView
 )
 # from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
@@ -141,6 +143,8 @@ urlpatterns = [
     path('<int:resID>/orders/new/count/', NewOrderCountView.as_view()),
 
 
+    path('reports/revenue/', RevenueReportView.as_view(), name='revenue-report'),
+    path('reports/daily/', DailyRevenueReportView.as_view(), name='daily-revenue-report'),
 
     # path('upload/<int:resID>/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-upload'),
     # path('upload/food/<int:foodID>/image/', FoodImageUploadView.as_view(), name='food-image-upload'),

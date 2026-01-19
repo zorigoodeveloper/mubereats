@@ -124,3 +124,16 @@ class RestaurantOrderSerializer(serializers.Serializer):
     location = serializers.CharField(max_length=300)
     status = serializers.CharField(max_length=50)
     foods = OrderFoodSerializer(many=True)  # nested list of foods    
+
+
+class RevenueReportSerializer(serializers.Serializer):
+    restaurant_name = serializers.CharField()
+    total_orders = serializers.IntegerField()
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_food_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+class DailyRevenueReportSerializer(serializers.Serializer):
+    restaurant_name = serializers.CharField()
+    date = serializers.DateField()
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)    
