@@ -737,9 +737,9 @@ class PackageListView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "package_id","restaurant_id","package_name","price" FROM tbl_package')
+            c.execute('SELECT "package_id","restaurant_id","package_name","price","portion","img","created_at","updated_at" FROM tbl_package')
             rows = c.fetchall()
-        data = [{"package_id": r[0], "restaurant_id": r[1], "package_name": r[2], "price": r[3]} for r in rows]
+        data = [{"package_id": r[0], "restaurant_id": r[1], "package_name": r[2], "price": r[3], "portion": r[4], "img": r[5], "created_at": r[6], "updated_at": r[7]} for r in rows]
         return Response(data)
 
 class PackageCreateView(APIView):
@@ -983,9 +983,9 @@ class PackageFoodListView(APIView):
     permission_classes = [AllowAny] #test hiij duusni ardaas [isAuthenticated bolgn]
     def get(self, request):
         with connection.cursor() as c:
-            c.execute('SELECT "id","package_id","food_id","quantity","portion","img" FROM tbl_package_food')
+            c.execute('SELECT "id","package_id","food_id","quantity" FROM tbl_package_food')
             rows = c.fetchall()
-        data = [{"id": r[0], "package_id": r[1], "food_id": r[2], "quantity": r[3],"portion": r[4],"img": r[5] }   for r in rows]
+        data = [{"id": r[0], "package_id": r[1], "food_id": r[2], "quantity": r[3] }   for r in rows]
         return Response(data)
 
 class PackageFoodCreateView(APIView):
@@ -1684,7 +1684,7 @@ class RevenueReportView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 #Ресторан + өдөр тутмын орлого
-class DailyRevenueReportView(APIView):
+class DailyRevenueReportView(APIView):  
     permission_classes = [AllowAny]
 
     def get(self, request):
