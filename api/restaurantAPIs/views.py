@@ -13,6 +13,9 @@ from django.core.files.storage import FileSystemStorage
 import uuid
 import cloudinary.uploader
 import time
+from .utils import is_order_belongs_to_restaurant
+from .serializers import OrderStatusUpdateSerializer
+
 
 
 from config import settings
@@ -54,12 +57,16 @@ cloudinary.config(
 
 # Жишээ: зөвшөөрөгдсөн status урсгал
 ALLOWED_TRANSITIONS = {
-    "PENDING": ["COOKING", "CANCELLED"],
-    "COOKING": ["READY", "CANCELLED"],
-    "READY": ["PAID", "CANCELLED"],
-    "PAID": [],
-    "CANCELLED": [],
+    
+    "Received": ["ACCEPTED", "CANCELLED"],  # add this line
+    "PENDING": ["ACCEPTED", "CANCELLED"],
+    "ACCEPTED": ["PREPARING", "CANCELLED"],
+    "PREPARING": ["DELIVERING", "CANCELLED"],
+    "DELIVERING": ["DONE", "CANCELLED"],
+    "DONE": [],
+    "CANCELLED": []
 }
+
 
 
 
@@ -1485,7 +1492,6 @@ class FoodImageUpdateView(APIView):
             "image_url": image_url
         }, status=200)
     
-
 class RestaurantOrderListView(APIView):
     permission_classes = [AllowAny]
 
@@ -1497,51 +1503,46 @@ class RestaurantOrderListView(APIView):
                     o."status",
                     o."created_at",
                     SUM(of."stock" * of."price") AS total_price,
-                    json_agg(
-                        json_build_object(
-                            'foodID', f."foodID",
-                            'foodName', f."foodName",
-                            'stock', of."stock",
-                            'price', of."price",
-                            'subtotal', of."stock" * of."price"
-                        )
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'foodID', f."foodID",
+                                'foodName', f."foodName",
+                                'stock', of."stock",
+                                'price', of."price",
+                                'subtotal', of."stock" * of."price"
+                            )
+                        ),
+                        '[]'
                     ) AS foods
                 FROM tbl_order o
                 JOIN tbl_orderfood of ON o."orderID" = of."orderID"
                 JOIN tbl_food f ON f."foodID" = of."foodID"
                 WHERE f."resID" = %s
-                GROUP BY o."orderID"
+                GROUP BY o."orderID", o."status", o."created_at"
                 ORDER BY o."created_at" DESC
             """, [resID])
 
             rows = cursor.fetchall()
 
-        data = [{
-            "orderID": r[0],
-            "status": r[1],
-            "created_at": r[2].isoformat(),
-            "total_price": r[3],
-            "foods": r[4]
-        } for r in rows]
+        return Response([
+            {
+                "orderID": r[0],
+                "status": r[1],
+                "created_at": r[2].isoformat(),
+                "total_price": r[3],
+                "foods": r[4]
+            }
+            for r in rows
+        ])
 
-        return Response(data) 
-
+ 
 class RestaurantOrderDetailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, resID, orderID):
         with connection.cursor() as cursor:
-            # 🔐 owner check
-            cursor.execute("""
-                SELECT 1
-                FROM tbl_order o
-                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
-                JOIN tbl_food f ON f."foodID" = of."foodID"
-                WHERE o."orderID" = %s AND f."resID" = %s
-                LIMIT 1
-            """, [orderID, resID])
-
-            if not cursor.fetchone():
+            if not is_order_belongs_to_restaurant(cursor, orderID, resID):
                 return Response(
                     {"error": "Forbidden"},
                     status=status.HTTP_403_FORBIDDEN
@@ -1553,20 +1554,23 @@ class RestaurantOrderDetailView(APIView):
                     o."status",
                     o."location",
                     o."created_at",
-                    json_agg(
-                        json_build_object(
-                            'foodID', f."foodID",
-                            'foodName', f."foodName",
-                            'stock', of."stock",
-                            'price', of."price",
-                            'subtotal', of."stock" * of."price"
-                        )
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'foodID', f."foodID",
+                                'foodName', f."foodName",
+                                'stock', of."stock",
+                                'price', of."price",
+                                'subtotal', of."stock" * of."price"
+                            )
+                        ),
+                        '[]'
                     ) AS foods
                 FROM tbl_order o
                 JOIN tbl_orderfood of ON o."orderID" = of."orderID"
                 JOIN tbl_food f ON f."foodID" = of."foodID"
                 WHERE o."orderID" = %s
-                GROUP BY o."orderID"
+                GROUP BY o."orderID", o."status", o."location", o."created_at"
             """, [orderID])
 
             row = cursor.fetchone()
@@ -1579,59 +1583,79 @@ class RestaurantOrderDetailView(APIView):
             "foods": row[4]
         })
 
+
 class OrderStatusUpdateView(APIView):
     permission_classes = [AllowAny]
 
     def put(self, request, resID, orderID):
-        new_status = request.data.get("status")
-        if not new_status:
-            return Response({"error": "Status is required"}, status=400)
+        # -----------------------------
+        # 1️⃣ Validate input using serializer
+        # -----------------------------
+        serializer = OrderStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data["status"]
 
-        try:
-            # 🔐 Owner check: order тухайн рестораных уу
-            order = Order.objects.get(pk=orderID, res_id=resID)
-        except Order.DoesNotExist:
-            return Response({"error": "Forbidden or order not found"}, status=403)
+        with connection.cursor() as cursor:
+            # -----------------------------
+            # 2️⃣ Owner check + current status
+            # -----------------------------
+            cursor.execute("""
+                SELECT o."status"
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE o."orderID" = %s AND f."resID" = %s
+                LIMIT 1
+            """, [orderID, resID])
 
-        current_status = order.status
-
-        # 🧠 Status validation
-        if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
-            return Response({
-                "error": f"Invalid transition from {current_status} to {new_status}"
-            }, status=400)
-
-        # ✅ Atomic update + history
-        try:
-            with transaction.atomic():
-                # Update order status
-                order.status = new_status
-                order.save()
-
-                # Insert into history
-                OrderStatusHistory.objects.create(
-                    order=order,
-                    old_status=current_status,
-                    new_status=new_status
+            row = cursor.fetchone()
+            if not row:
+                return Response(
+                    {"error": "Forbidden or order not found"},
+                    status=status.HTTP_403_FORBIDDEN
                 )
 
-            return Response({
-                "orderID": orderID,
-                "old_status": current_status,
-                "new_status": new_status
-            })
+            current_status = row[0]
 
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            # -----------------------------
+            # 3️⃣ Status transition validation
+            # -----------------------------
+            if new_status not in ALLOWED_TRANSITIONS.get(current_status, []):
+                return Response({
+                    "error": f"Invalid transition from {current_status} to {new_status}"
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        # 🔔 Optional: notification
-        # notify_user(orderID, new_status)
+            # -----------------------------
+            # 4️⃣ Atomic update + insert history
+            # -----------------------------
+            try:
+                with transaction.atomic():
+                    # Update order status
+                    cursor.execute("""
+                        UPDATE tbl_order
+                        SET "status" = %s
+                        WHERE "orderID" = %s
+                    """, [new_status, orderID])
 
+                    # Insert into history (changed_at auto)
+                    cursor.execute("""
+                        INSERT INTO tbl_order_status_history
+                        ("orderID", "old_status", "new_status")
+                        VALUES (%s, %s, %s)
+                    """, [orderID, current_status, new_status])
+
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # -----------------------------
+        # 5️⃣ Return response
+        # -----------------------------
         return Response({
-            "message": f"Order status updated from {current_status} to {new_status}",
             "orderID": orderID,
+            "old_status": current_status,
             "new_status": new_status
         })
+
 
 class NewOrderCountView(APIView):
     permission_classes = [AllowAny]
@@ -1647,15 +1671,708 @@ class NewOrderCountView(APIView):
                   AND o."status" = 'PENDING'
             """, [resID])
 
-            count = cursor.fetchone()[0]
+            return Response({
+                "new_orders": cursor.fetchone()[0]
+            })
 
-        return Response({"new_orders": count})
+
+from datetime import datetime, date, timedelta
+from django.db import transaction
+from rest_framework.viewsets import ViewSet
+from django.utils import timezone
+from rest_framework.decorators import action
+
+STATUS_FLOW_CONFIG = {
+    "PENDING": ["ACCEPTED", "CANCELLED"],
+    "ACCEPTED": ["PREPARING", "CANCELLED"],
+    "PREPARING": ["READY_FOR_PICKUP", "CANCELLED"],
+    "READY_FOR_PICKUP": ["ON_DELIVERY", "PICKED_UP", "CANCELLED"],
+    "ON_DELIVERY": ["DELIVERED", "CANCELLED"],
+    "PICKED_UP": ["COMPLETED"],
+    "DELIVERED": ["COMPLETED"],
+    "COMPLETED": [],
+    "CANCELLED": []
+}
+
+class RestaurantOrderViewSet(ViewSet):
+    """
+    Рестораны захиалгуудын CRUD операцууд
+    """
+    permission_classes = [AllowAny]  # Дараа нь IsAuthenticated болго
+    
+    def list(self, request, resID=None):
+        """
+        Рестораны бүх захиалгуудыг жагсаалт хэлбэрээр буцаана
+        """
+        # Query parameters
+        status = request.query_params.get('status')
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        offset = (page - 1) * page_size
+        
+        # Base query with filters
+        query = """
+            SELECT 
+                o."orderID",
+                o."customer_id",
+                u."username" as customer_name,
+                u."phone" as customer_phone,
+                o."status",
+                o."location",
+                o."payment_method",
+                o."total_price",
+                o."created_at",
+                o."updated_at",
+                json_agg(DISTINCT jsonb_build_object(
+                    'foodID', f."foodID",
+                    'foodName', f."foodName",
+                    'image', f."image",
+                    'quantity', of."stock",
+                    'price', of."price",
+                    'subtotal', of."stock" * of."price"
+                )) as items,
+                COUNT(DISTINCT f."foodID") as item_count
+            FROM tbl_order o
+            JOIN "auth_user" u ON u."id" = o."customer_id"
+            JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+            JOIN tbl_food f ON f."foodID" = of."foodID"
+            WHERE f."resID" = %s
+        """
+        
+        params = [resID]
+        
+        # Add filters
+        if status:
+            query += " AND o.\"status\" = %s"
+            params.append(status)
+        
+        if date_from:
+            query += " AND DATE(o.\"created_at\") >= %s"
+            params.append(date_from)
+        
+        if date_to:
+            query += " AND DATE(o.\"created_at\") <= %s"
+            params.append(date_to)
+        
+        # Group and order
+        query += """
+            GROUP BY 
+                o."orderID", u."username", u."phone"
+            ORDER BY o."created_at" DESC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([page_size, offset])
+        
+        # Count query
+        count_query = """
+            SELECT COUNT(DISTINCT o."orderID")
+            FROM tbl_order o
+            JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+            JOIN tbl_food f ON f."foodID" = of."foodID"
+            WHERE f."resID" = %s
+        """
+        count_params = [resID]
+        
+        if status:
+            count_query += " AND o.\"status\" = %s"
+            count_params.append(status)
+        
+        with connection.cursor() as cursor:
+            # Get total count
+            cursor.execute(count_query, count_params)
+            total_count = cursor.fetchone()[0] or 0
+            
+            # Get orders
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+        
+        # Format response
+        orders = []
+        for row in rows:
+            orders.append({
+                "order_id": row[0],
+                "customer": {
+                    "id": row[1],
+                    "name": row[2],
+                    "phone": row[3]
+                },
+                "status": row[4],
+                "delivery_info": {
+                    "location": row[5],
+                    "payment_method": row[6]
+                },
+                "financial": {
+                    "total_price": float(row[7]) if row[7] else 0,
+                    "item_count": row[11]
+                },
+                "timestamps": {
+                    "created_at": row[8].isoformat() if row[8] else None,
+                    "updated_at": row[9].isoformat() if row[9] else None
+                },
+                "items": row[10] or []
+            })
+        
+        return Response({
+            "restaurant_id": resID,
+            "total_orders": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size,
+            "orders": orders
+        })
+    
+    def retrieve(self, request, resID=None, pk=None):
+        """
+        Тодорхой захиалгын дэлгэрэнгүй мэдээлэл
+        """
+        orderID = pk
+        
+        with connection.cursor() as cursor:
+            # Verify restaurant ownership
+            cursor.execute("""
+                SELECT EXISTS(
+                    SELECT 1 
+                    FROM tbl_order o
+                    JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                    JOIN tbl_food f ON f."foodID" = of."foodID"
+                    WHERE o."orderID" = %s AND f."resID" = %s
+                )
+            """, [orderID, resID])
+            
+            if not cursor.fetchone()[0]:
+                return Response(
+                    {"error": "Захиалга олдсонгүй эсвэл хандах эрхгүй"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Get order details
+            cursor.execute("""
+                SELECT 
+                    o."orderID",
+                    o."customer_id",
+                    u."username" as customer_name,
+                    u."phone" as customer_phone,
+                    u."email" as customer_email,
+                    o."status",
+                    o."location",
+                    o."payment_method",
+                    o."total_price",
+                    o."notes",
+                    o."created_at",
+                    o."updated_at",
+                    json_agg(DISTINCT jsonb_build_object(
+                        'food_id', f."foodID",
+                        'food_name', f."foodName",
+                        'description', f."description",
+                        'image', f."image",
+                        'category_id', f."catID",
+                        'quantity', of."stock",
+                        'unit_price', of."price",
+                        'subtotal', of."stock" * of."price"
+                    )) as items
+                FROM tbl_order o
+                JOIN "auth_user" u ON u."id" = o."customer_id"
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE o."orderID" = %s
+                GROUP BY o."orderID", u."username", u."phone", u."email"
+            """, [orderID])
+            
+            order_data = cursor.fetchone()
+            
+            if not order_data:
+                return Response({"error": "Захиалга олдсонгүй"}, status=404)
+            
+            # Get status history
+            cursor.execute("""
+                SELECT 
+                    "old_status",
+                    "new_status",
+                    "changed_at",
+                    "changed_by",
+                    "notes" as change_notes
+                FROM tbl_order_status_history
+                WHERE "order_id" = %s
+                ORDER BY "changed_at" DESC
+            """, [orderID])
+            
+            status_history = cursor.fetchall()
+            
+            # Get restaurant info
+            cursor.execute("""
+                SELECT 
+                    r."resName",
+                    r."phone" as restaurant_phone,
+                    r."email" as restaurant_email,
+                    r."lng",
+                    r."lat"
+                FROM tbl_restaurant r
+                JOIN tbl_food f ON f."resID" = r."resID"
+                JOIN tbl_orderfood of ON of."foodID" = f."foodID"
+                WHERE of."orderID" = %s
+                LIMIT 1
+            """, [orderID])
+            
+            restaurant_info = cursor.fetchone()
+        
+        # Format status history
+        history_list = []
+        for hist in status_history:
+            history_list.append({
+                "from_status": hist[0],
+                "to_status": hist[1],
+                "changed_at": hist[2].isoformat() if hist[2] else None,
+                "changed_by": hist[3],
+                "notes": hist[4]
+            })
+        
+        response_data = {
+            "order_id": order_data[0],
+            "customer": {
+                "id": order_data[1],
+                "name": order_data[2],
+                "phone": order_data[3],
+                "email": order_data[4]
+            },
+            "status_info": {
+                "current_status": order_data[5],
+                "next_possible_statuses": STATUS_FLOW_CONFIG.get(order_data[5], []),
+                "history": history_list
+            },
+            "delivery": {
+                "location": order_data[6],
+                "payment_method": order_data[7],
+                "notes": order_data[9]
+            },
+            "financial": {
+                "total_price": float(order_data[8]) if order_data[8] else 0,
+                "items": order_data[12] or []
+            },
+            "restaurant": restaurant_info and {
+                "name": restaurant_info[0],
+                "phone": restaurant_info[1],
+                "email": restaurant_info[2],
+                "coordinates": {
+                    "lng": float(restaurant_info[3]) if restaurant_info[3] else None,
+                    "lat": float(restaurant_info[4]) if restaurant_info[4] else None
+                }
+            },
+            "timestamps": {
+                "created_at": order_data[10].isoformat() if order_data[10] else None,
+                "updated_at": order_data[11].isoformat() if order_data[11] else None,
+                "estimated_preparation_time": None,  # Тооцоолсон бэлтгэх хугацаа
+                "estimated_delivery_time": None      # Тооцоолсон хүргэлтийн хугацаа
+            }
+        }
+        
+        # Calculate estimated times based on status
+        if order_data[10]:  # created_at
+            created_at = order_data[10]
+            if order_data[5] == "PREPARING":
+                # Бэлтгэж эхэлснээс хойш 30-40 минут
+                response_data["timestamps"]["estimated_preparation_time"] = (
+                    created_at + timedelta(minutes=30)
+                ).isoformat()
+            elif order_data[5] in ["READY_FOR_PICKUP", "ON_DELIVERY"]:
+                # Бэлэн болсоноос хойш 20-30 минут
+                response_data["timestamps"]["estimated_delivery_time"] = (
+                    created_at + timedelta(minutes=50)
+                ).isoformat()
+        
+        return Response(response_data)
+    
+    @action(detail=True, methods=['patch'])
+    def update_status(self, request, resID=None, pk=None):
+        """
+        Захиалгын статус шинэчлэх
+        """
+        orderID = pk
+        new_status = request.data.get('status')
+        notes = request.data.get('notes', '')
+        
+        if not new_status:
+            return Response(
+                {"error": "Шинэ статус заавал шаардлагатай"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    # Get current order info with restaurant verification
+                    cursor.execute("""
+                        SELECT 
+                            o."status",
+                            o."customer_id",
+                            r."resID"
+                        FROM tbl_order o
+                        JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                        JOIN tbl_food f ON f."foodID" = of."foodID"
+                        JOIN tbl_restaurant r ON r."resID" = f."resID"
+                        WHERE o."orderID" = %s AND r."resID" = %s
+                        LIMIT 1
+                    """, [orderID, resID])
+                    
+                    order_info = cursor.fetchone()
+                    
+                    if not order_info:
+                        return Response(
+                            {"error": "Захиалга олдсонгүй эсвэл хандах эрхгүй"},
+                            status=status.HTTP_404_NOT_FOUND
+                        )
+                    
+                    current_status, customer_id, restaurant_id = order_info
+                    
+                    # Validate status transition
+                    allowed_transitions = STATUS_FLOW_CONFIG.get(current_status, [])
+                    if new_status not in allowed_transitions:
+                        return Response({
+                            "error": f"Статус шилжилт зөвшөөрөгдөөгүй: {current_status} → {new_status}",
+                            "current_status": current_status,
+                            "allowed_transitions": allowed_transitions
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Update order status
+                    cursor.execute("""
+                        UPDATE tbl_order 
+                        SET 
+                            "status" = %s,
+                            "updated_at" = CURRENT_TIMESTAMP
+                        WHERE "orderID" = %s
+                        RETURNING "orderID", "status", "updated_at"
+                    """, [new_status, orderID])
+                    
+                    updated_order = cursor.fetchone()
+                    
+                    # Record status history
+                    cursor.execute("""
+                        INSERT INTO tbl_order_status_history 
+                        ("order_id", "old_status", "new_status", "changed_by", "notes")
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, [orderID, current_status, new_status, "restaurant", notes])
+                    
+                    # Update orderfood status if needed
+                    if new_status in ["CANCELLED", "COMPLETED"]:
+                        cursor.execute("""
+                            UPDATE tbl_orderfood 
+                            SET "status" = %s 
+                            WHERE "orderID" = %s
+                        """, [new_status, orderID])
+        
+        except Exception as e:
+            return Response(
+                {"error": f"Статус шинэчлэхэд алдаа гарлаа: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # ✅ Optional: Send notification to customer
+        # send_order_status_notification(customer_id, orderID, new_status)
+        
+        return Response({
+            "success": True,
+            "message": "Захиалгын статус амжилттай шинэчлэгдлээ",
+            "order_id": orderID,
+            "previous_status": current_status,
+            "new_status": new_status,
+            "updated_at": updated_order[2].isoformat() if updated_order[2] else None,
+            "notes": notes
+        })
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request, resID=None):
+        """
+        Рестораны захиалгын статистик мэдээлэл
+        """
+        period = request.query_params.get('period', 'today')  # today, week, month, year
+        
+        # Define date ranges
+        today = date.today()
+        if period == 'today':
+            date_start = today
+            date_end = today
+        elif period == 'week':
+            date_start = today - timedelta(days=today.weekday())
+            date_end = date_start + timedelta(days=6)
+        elif period == 'month':
+            date_start = today.replace(day=1)
+            next_month = today.replace(day=28) + timedelta(days=4)
+            date_end = next_month - timedelta(days=next_month.day)
+        elif period == 'year':
+            date_start = today.replace(month=1, day=1)
+            date_end = today.replace(month=12, day=31)
+        else:
+            date_start = today
+            date_end = today
+        
+        with connection.cursor() as cursor:
+            # Overall statistics
+            cursor.execute("""
+                SELECT 
+                    COUNT(DISTINCT o."orderID") as total_orders,
+                    SUM(o."total_price") as total_revenue,
+                    AVG(o."total_price") as avg_order_value,
+                    MIN(o."created_at") as first_order_date,
+                    MAX(o."created_at") as last_order_date
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s
+            """, [resID])
+            
+            overall_stats = cursor.fetchone()
+            
+            # Status breakdown
+            cursor.execute("""
+                SELECT 
+                    o."status",
+                    COUNT(DISTINCT o."orderID") as count,
+                    SUM(o."total_price") as revenue
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s
+                GROUP BY o."status"
+                ORDER BY count DESC
+            """, [resID])
+            
+            status_stats = cursor.fetchall()
+            
+            # Period statistics
+            cursor.execute("""
+                SELECT 
+                    COUNT(DISTINCT o."orderID") as period_orders,
+                    SUM(o."total_price") as period_revenue,
+                    COUNT(DISTINCT o."customer_id") as unique_customers
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s 
+                AND DATE(o."created_at") BETWEEN %s AND %s
+            """, [resID, date_start, date_end])
+            
+            period_stats = cursor.fetchone()
+            
+            # Popular items
+            cursor.execute("""
+                SELECT 
+                    f."foodName",
+                    COUNT(of."orderID") as order_count,
+                    SUM(of."stock") as total_quantity,
+                    SUM(of."stock" * of."price") as total_revenue
+                FROM tbl_orderfood of
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                JOIN tbl_order o ON o."orderID" = of."orderID"
+                WHERE f."resID" = %s
+                GROUP BY f."foodID", f."foodName"
+                ORDER BY total_quantity DESC
+                LIMIT 10
+            """, [resID])
+            
+            popular_items = cursor.fetchall()
+        
+        # Format response
+        response_data = {
+            "restaurant_id": resID,
+            "period": {
+                "type": period,
+                "start_date": date_start.isoformat(),
+                "end_date": date_end.isoformat()
+            },
+            "overall": {
+                "total_orders": overall_stats[0] or 0,
+                "total_revenue": float(overall_stats[1] or 0),
+                "avg_order_value": float(overall_stats[2] or 0),
+                "first_order_date": overall_stats[3].isoformat() if overall_stats[3] else None,
+                "last_order_date": overall_stats[4].isoformat() if overall_stats[4] else None
+            },
+            "period_summary": {
+                "orders": period_stats[0] or 0,
+                "revenue": float(period_stats[1] or 0),
+                "unique_customers": period_stats[2] or 0
+            },
+            "status_breakdown": [
+                {
+                    "status": stat[0],
+                    "count": stat[1],
+                    "revenue": float(stat[2] or 0)
+                }
+                for stat in status_stats
+            ],
+            "popular_items": [
+                {
+                    "food_name": item[0],
+                    "order_count": item[1],
+                    "total_quantity": item[2],
+                    "total_revenue": float(item[3] or 0)
+                }
+                for item in popular_items
+            ]
+        }
+        
+        # Calculate completion rate
+        total_orders = overall_stats[0] or 0
+        completed_orders = sum(stat[1] for stat in status_stats if stat[0] in ["COMPLETED", "DELIVERED"])
+        if total_orders > 0:
+            response_data["completion_rate"] = round(completed_orders / total_orders * 100, 2)
+        else:
+            response_data["completion_rate"] = 0
+        
+        return Response(response_data)
+    
+    @action(detail=False, methods=['get'])
+    def dashboard(self, request, resID=None):
+        """
+        Рестораны захиалгын dashboard мэдээлэл
+        """
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        
+        with connection.cursor() as cursor:
+            # Today's orders
+            cursor.execute("""
+                SELECT 
+                    COUNT(DISTINCT o."orderID") as today_orders,
+                    SUM(o."total_price") as today_revenue,
+                    COUNT(DISTINCT o."customer_id") as today_customers
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s 
+                AND DATE(o."created_at") = %s
+            """, [resID, today])
+            
+            today_stats = cursor.fetchone()
+            
+            # Yesterday's orders
+            cursor.execute("""
+                SELECT 
+                    COUNT(DISTINCT o."orderID") as yesterday_orders,
+                    SUM(o."total_price") as yesterday_revenue
+                FROM tbl_order o
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s 
+                AND DATE(o."created_at") = %s
+            """, [resID, yesterday])
+            
+            yesterday_stats = cursor.fetchone()
+            
+            # Pending orders
+            cursor.execute("""
+                SELECT 
+                    o."orderID",
+                    o."customer_id",
+                    u."username" as customer_name,
+                    o."status",
+                    o."total_price",
+                    o."created_at",
+                    TIMESTAMPDIFF(MINUTE, o."created_at", NOW()) as minutes_passed
+                FROM tbl_order o
+                JOIN "auth_user" u ON u."id" = o."customer_id"
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s 
+                AND o."status" IN ('PENDING', 'ACCEPTED', 'PREPARING')
+                ORDER BY o."created_at" ASC
+                LIMIT 10
+            """, [resID])
+            
+            pending_orders = cursor.fetchall()
+            
+            # Recent completed orders
+            cursor.execute("""
+                SELECT 
+                    o."orderID",
+                    o."customer_id",
+                    u."username" as customer_name,
+                    o."status",
+                    o."total_price",
+                    o."created_at",
+                    o."updated_at"
+                FROM tbl_order o
+                JOIN "auth_user" u ON u."id" = o."customer_id"
+                JOIN tbl_orderfood of ON o."orderID" = of."orderID"
+                JOIN tbl_food f ON f."foodID" = of."foodID"
+                WHERE f."resID" = %s 
+                AND o."status" IN ('COMPLETED', 'DELIVERED')
+                ORDER BY o."updated_at" DESC
+                LIMIT 5
+            """, [resID])
+            
+            recent_completed = cursor.fetchall()
+        
+        # Calculate growth
+        today_rev = float(today_stats[1] or 0)
+        yesterday_rev = float(yesterday_stats[1] or 0)
+        revenue_growth = 0
+        if yesterday_rev > 0:
+            revenue_growth = ((today_rev - yesterday_rev) / yesterday_rev) * 100
+        
+        # Format pending orders
+        formatted_pending = []
+        for order in pending_orders:
+            formatted_pending.append({
+                "order_id": order[0],
+                "customer": {
+                    "id": order[1],
+                    "name": order[2]
+                },
+                "status": order[3],
+                "total_price": float(order[4]) if order[4] else 0,
+                "created_at": order[5].isoformat() if order[5] else None,
+                "waiting_time_minutes": order[6] or 0,
+                "urgency": "high" if (order[6] or 0) > 30 else "medium" if (order[6] or 0) > 15 else "low"
+            })
+        
+        # Format recent completed orders
+        formatted_recent = []
+        for order in recent_completed:
+            formatted_recent.append({
+                "order_id": order[0],
+                "customer": {
+                    "id": order[1],
+                    "name": order[2]
+                },
+                "status": order[3],
+                "total_price": float(order[4]) if order[4] else 0,
+                "created_at": order[5].isoformat() if order[5] else None,
+                "completed_at": order[6].isoformat() if order[6] else None
+            })
+        
+        return Response({
+            "restaurant_id": resID,
+            "date": today.isoformat(),
+            "summary": {
+                "today": {
+                    "orders": today_stats[0] or 0,
+                    "revenue": today_rev,
+                    "customers": today_stats[2] or 0
+                },
+                "yesterday": {
+                    "orders": yesterday_stats[0] or 0,
+                    "revenue": yesterday_rev
+                },
+                "revenue_growth_percent": round(revenue_growth, 2)
+            },
+            "pending_orders": {
+                "count": len(formatted_pending),
+                "orders": formatted_pending
+            },
+            "recent_completed": {
+                "count": len(formatted_recent),
+                "orders": formatted_recent
+            }
+        })
+
+
 
 #Ресторан тус бүрийн нийт орлого, захиалгын тоо, хоолны орлого
 class RevenueReportView(APIView):
     permission_classes = [AllowAny]  # Хэрвээ login шаардлагатай бол өөрчил
 
-    def get(self, request):
+    def get(self, request, resID):
         """
         Restaurant-аар орлогын тайлан
         Шууд SQL query ашиглана

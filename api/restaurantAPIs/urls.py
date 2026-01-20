@@ -57,12 +57,22 @@ from .views import (
     FoodDetailView,
     PackageDetailView,
     RevenueReportView,
-    DailyRevenueReportView
+    DailyRevenueReportView,
+
+    RestaurantOrderViewSet
 )
 # from .tViews import RestaurantOrderListView
 from .confirm_order import ConfirmOrderView
 from django.conf import settings
 from django.conf.urls.static import static
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import RestaurantOrderViewSet
+
+router = DefaultRouter()
+router.register(r'restaurants/(?P<resID>\d+)/orders', RestaurantOrderViewSet, basename='restaurant-orders')
+
 
 urlpatterns = [
     # Restaurant
@@ -143,7 +153,7 @@ urlpatterns = [
     path('<int:resID>/orders/new/count/', NewOrderCountView.as_view()),
 
 
-    path('reports/revenue/', RevenueReportView.as_view(), name='revenue-report'),
+    path('reports/revenue/<int:resID>/', RevenueReportView.as_view(), name='revenue-report'),
     path('reports/daily/', DailyRevenueReportView.as_view(), name='daily-revenue-report'),
 
     # path('upload/<int:resID>/image/', RestaurantImageUploadView.as_view(), name='restaurant-image-upload'),
@@ -153,3 +163,5 @@ urlpatterns = [
 ]
 # if settings.DEBUG:
 #     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+    
