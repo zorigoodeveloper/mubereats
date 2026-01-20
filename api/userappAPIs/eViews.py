@@ -149,14 +149,14 @@ class NearbyOrSearchRestaurantsAPIView(APIView):
                 r."resName" AS name,
                 (6371 * acos(
                     cos(radians(%s)) 
-                    * cos(radians(r."latitude")) 
-                    * cos(radians(r."longitude") - radians(%s)) 
+                    * cos(radians(r."lat")) 
+                    * cos(radians(r."lng") - radians(%s)) 
                     + sin(radians(%s)) 
-                    * sin(radians(r."latitude"))
+                    * sin(radians(r."lat"))
                 )) AS distance_km
             FROM tbl_restaurant r
-            WHERE r."latitude" IS NOT NULL 
-              AND r."longitude" IS NOT NULL
+            WHERE r."lat" IS NOT NULL 
+              AND r."lng" IS NOT NULL
         """
 
         params = [lat, lon, lat]
