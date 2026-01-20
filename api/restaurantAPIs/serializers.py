@@ -115,6 +115,34 @@ class OrderFoodSerializer(serializers.Serializer):
     foodName = serializers.CharField(max_length=200)
     quantity = serializers.IntegerField()
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    subtotal = serializers.IntegerField()
+
+class RestaurantOrderListSerializer(serializers.Serializer):
+    orderID = serializers.IntegerField()
+    status = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    total_price = serializers.IntegerField()
+    foods = OrderFoodSerializer(many=True)
+
+class RestaurantOrderDetailSerializer(serializers.Serializer):
+    orderID = serializers.IntegerField()
+    status = serializers.CharField()
+    location = serializers.CharField(allow_null=True)
+    created_at = serializers.DateTimeField()
+    foods = OrderFoodSerializer(many=True)
+
+class OrderStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=[
+            'PENDING',
+            'ACCEPTED',
+            'PREPARING',
+            'DELIVERING',
+            'DONE',
+            'CANCELLED'
+        ]
+    )
+
 
 # Serializer for each order
 class RestaurantOrderSerializer(serializers.Serializer):
