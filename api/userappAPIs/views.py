@@ -516,6 +516,10 @@ class ProfileView(APIView):
 
         })
     
+
+
+# Таны execute функцуудыг import хийсэн гэж үзнэ (execute_query, execute_insert, execute_update)
+
 class AddToCartView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -527,25 +531,29 @@ class AddToCartView(APIView):
             return Response({"error": "Зөвхөн customer сагс ашиглаж болно"}, status=403)
 
         data = request.data
-        food_id = data.get('foodID')  # эсвэл 'foodId' гэж байвал тааруул
-
-        # Quantity-г шалгах (байхгүй эсвэл буруу бол 1 гэж тооцно)
-        quantity_raw = data.get('quantity', 1)
-        try:
-            quantity = int(quantity_raw)
-            if quantity < 1:
-                quantity = 1  # 0 эсвэл сөрөг байсан ч 1 болгоно
-        except (ValueError, TypeError):
-            quantity = 1  # string эсвэл буруу утга байсан ч 1 гэж тооцно
+        food_id = data.get('foodID') or data.get('foodId')
 
         if not food_id:
             return Response({"error": "foodID (эсвэл foodId) заавал оруулна уу"}, status=400)
 
-        # 1. Хэрэглэгчийн сагс олох эсвэл шинээр үүсгэх
+        # Quantity: key байхгүй бол +1, байвал илгээсэн утгыг ашиглана
+        quantity_input = data.get('quantity')
+        if quantity_input is None:
+            quantity = 1
+        else:
+            try:
+                quantity = int(quantity_input)
+                quantity = max(1, quantity)
+            except (ValueError, TypeError):
+                quantity = 1
+
+        # Cart олох
         cart = execute_query(
             """
-            SELECT "cartID" FROM tbl_cart 
+            SELECT "cartID" 
+            FROM tbl_cart 
             WHERE "userID" = %s
+            ORDER BY "cartID" DESC
             LIMIT 1
             """,
             (user.id,),
@@ -555,55 +563,63 @@ class AddToCartView(APIView):
         if cart:
             cart_id = cart['cartID']
         else:
-            # Шинэ cartID (bigint-д тохирох өвөрмөц тоо)
             new_cart_id = int(time.time() * 1000000) + random.randint(1, 999999)
-
-            cart = execute_insert(
+            inserted = execute_insert(
                 """
                 INSERT INTO tbl_cart ("cartID", "userID") 
-                VALUES (%s, %s) 
+                VALUES (%s, %s)
                 RETURNING "cartID"
                 """,
-                (new_cart_id, user.id)
+                (new_cart_id, user.id),
+                fetch_one=True
             )
-            cart_id = cart['cartID']
+            cart_id = inserted['cartID']
 
-        # 2. Энэ хоол аль хэдийн байгаа эсэх шалгах
+        # Item шалгах
         existing = execute_query(
             """
-            SELECT "cartID", stock 
+            SELECT stock 
             FROM tbl_cart_food 
-            WHERE "cartID" = %s AND "foodID" = %s AND "userID" = %s
+            WHERE "cartID" = %s 
+              AND "foodID" = %s 
+              AND "userID" = %s
             """,
             (cart_id, food_id, user.id),
             fetch_one=True
         )
 
         if existing:
-            # Байвал тоог нэмэх
-            new_quantity = existing['stock'] + quantity
+            new_stock = existing['stock'] + quantity
             execute_update(
                 """
                 UPDATE tbl_cart_food 
-                SET stock = %s 
-                WHERE "cartID" = %s AND "foodID" = %s AND "userID" = %s
+                SET stock = %s
+                WHERE "cartID" = %s 
+                  AND "foodID" = %s 
+                  AND "userID" = %s
                 """,
-                (new_quantity, cart_id, food_id, user.id)
+                (new_stock, cart_id, food_id, user.id)
             )
+            action = "шинэчлэгдлээ"
+            final_quantity = new_stock
         else:
-            # Шинээр нэмэх (quantity 1 эсвэл илгээсэн утгаараа)
             execute_insert(
                 """
-                INSERT INTO tbl_cart_food ("cartID", "userID", "foodID", stock)
+                INSERT INTO tbl_cart_food 
+                ("cartID", "userID", "foodID", stock)
                 VALUES (%s, %s, %s, %s)
                 """,
                 (cart_id, user.id, food_id, quantity)
             )
+            action = "нэмэгдлээ"
+            final_quantity = quantity
 
         return Response({
-            "message": f"Сагсанд амжилттай нэмэгдлээ ({quantity} ширхэг)",
+            "success": True,
+            "message": f"Сагсанд амжилттай {action} ({quantity} ширхэг)",
             "foodId": food_id,
             "quantity_added": quantity,
+            "total_in_cart_now": final_quantity,
             "cartID": cart_id
         }, status=201)
     
